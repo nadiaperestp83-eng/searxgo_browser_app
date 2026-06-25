@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:http/http.dart' as http;
 import 'searxng_config.dart';
-import 'models/search_result.dart';  // <-- GARANTA QUE ESTA LINHA EXISTE
+import 'models/search_result.dart';
 
 enum _Screen { home, results, webview }
 
@@ -265,7 +265,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
                       child: Text(_errorMsg!,
                           style: const TextStyle(
                               color: Colors.redAccent)))
-                  : _searchResponse != null  // <-- ADICIONEI ESTA VERIFICAÇÃO
+                  : _searchResponse != null
                       ? _ResultsScreen(
                           response: _searchResponse!,
                           accent: accent,
@@ -629,7 +629,7 @@ class _SuggestionsRow extends StatelessWidget {
                     ))
                 .toList(),
           ),
-        ),
+        ],
       ),
     );
   }
