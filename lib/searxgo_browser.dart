@@ -13,6 +13,7 @@ class SearxGoBrowser extends StatefulWidget {
 class _SearxGoBrowserState extends State<SearxGoBrowser> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   InAppWebViewController? _webController;
 
   double _loadProgress = 0;
@@ -25,6 +26,10 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
     incognito: true,
     cacheEnabled: false,
     clearCache: true,
+    // Sem UI nativa do WebView — só nossa barra Flutter
+    supportZoom: true,
+    builtInZoomControls: false,
+    displayZoomControls: false,
     userAgent:
         'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 '
         '(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
@@ -60,26 +65,34 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
 
   @override
   Widget build(BuildContext context) {
-    final barColor = Color(SearxNGConfig.primaryColor);
     final accent = Color(SearxNGConfig.accentColor);
+    final barColor = Color(SearxNGConfig.primaryColor);
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
+        key: _scaffoldKey,
         backgroundColor: Colors.black,
+
+        // ── Drawer lateral (menu hamburguer) ─────────────────
+        endDrawer: _SettingsDrawer(accent: accent, barColor: barColor),
+
         body: SafeArea(
           child: Stack(
             children: [
-              // ── WebView (embaixo) ──────────────────────────
+              // ── WebView — ocupa tudo abaixo da barra ────────
               Positioned.fill(
-                top: 58,
+                top: 56,
                 child: InAppWebView(
                   initialUrlRequest:
                       URLRequest(url: WebUri(SearxNGConfig.homeUrl)),
                   initialSettings: _webSettings,
                   onWebViewCreated: (c) => _webController = c,
                   onLoadStart: (c, url) {
-                    setState(() { _isLoading = true; _loadProgress = 0; });
+                    setState(() {
+                      _isLoading = true;
+                      _loadProgress = 0;
+                    });
                     _updateBar(url?.toString() ?? '');
                   },
                   onLoadStop: (c, url) {
@@ -99,135 +112,113 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
                 ),
               ),
 
-              // ── Barra fixa (em cima, sempre visível) ───────
+              // ── Barra fixa estilo DDG ────────────────────────
               Positioned(
                 top: 0, left: 0, right: 0,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Container(
-                      height: 54,
+                      height: 52,
                       color: barColor,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
                       child: Row(
                         children: [
-                          // Home
+                          // Campo de busca — igual DDG, ocupa tudo
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () {
+                                _searchFocus.requestFocus();
+                                _searchController.selection = TextSelection(
+                                  baseOffset: 0,
+                                  extentOffset:
+                                      _searchController.text.length,
+                                );
+                              },
+                              child: Container(
+                                height: 38,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: _isEditing
+                                      ? Border.all(
+                                          color: accent, width: 1.5)
+                                      : null,
+                                ),
+                                child: Row(
+                                  children: [
+                                    const SizedBox(width: 12),
+                                    Icon(Icons.lock_outline,
+                                        size: 13, color: accent),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _searchController,
+                                        focusNode: _searchFocus,
+                                        onSubmitted: _navigate,
+                                        textInputAction: TextInputAction.go,
+                                        keyboardType: TextInputType.url,
+                                        autocorrect: false,
+                                        style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 14),
+                                        decoration: InputDecoration(
+                                          hintText:
+                                              'Buscar ou digitar URL...',
+                                          hintStyle: TextStyle(
+                                              color: Colors.white
+                                                  .withOpacity(0.4),
+                                              fontSize: 14),
+                                          border: InputBorder.none,
+                                          isDense: true,
+                                          contentPadding: EdgeInsets.zero,
+                                          // SEM suffixIcon — sem X
+                                        ),
+                                      ),
+                                    ),
+                                    // Badge trackers bloqueados
+                                    if (_blockedCount > 0 && !_isEditing)
+                                      Padding(
+                                        padding:
+                                            const EdgeInsets.only(right: 8),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.shield,
+                                                size: 12, color: accent),
+                                            const SizedBox(width: 2),
+                                            Text('$_blockedCount',
+                                                style: TextStyle(
+                                                    color: accent,
+                                                    fontSize: 11,
+                                                    fontWeight:
+                                                        FontWeight.bold)),
+                                          ],
+                                        ),
+                                      ),
+                                    const SizedBox(width: 8),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(width: 6),
+
+                          // Hamburguer — abre drawer de configurações
                           IconButton(
-                            onPressed: () {
-                              _searchController.clear();
-                              _webController?.loadUrl(
-                                urlRequest: URLRequest(
-                                    url: WebUri(SearxNGConfig.homeUrl)),
-                              );
-                            },
-                            icon: const Text('🔍',
-                                style: TextStyle(fontSize: 18)),
+                            onPressed: () =>
+                                _scaffoldKey.currentState?.openEndDrawer(),
+                            icon: const Icon(Icons.menu,
+                                color: Colors.white70, size: 22),
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints(
                                 minWidth: 36, minHeight: 36),
                           ),
-
-                          // Campo de busca
-                          Expanded(
-                            child: Container(
-                              height: 36,
-                              margin:
-                                  const EdgeInsets.symmetric(horizontal: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(18),
-                                border: _isEditing
-                                    ? Border.all(color: accent, width: 1.5)
-                                    : null,
-                              ),
-                              child: Row(
-                                children: [
-                                  const SizedBox(width: 10),
-                                  Icon(Icons.lock, size: 13, color: accent),
-                                  const SizedBox(width: 4),
-                                  Expanded(
-                                    child: TextField(
-                                      controller: _searchController,
-                                      focusNode: _searchFocus,
-                                      onTap: () {
-                                        _searchController.selection =
-                                            TextSelection(
-                                          baseOffset: 0,
-                                          extentOffset:
-                                              _searchController.text.length,
-                                        );
-                                      },
-                                      onSubmitted: _navigate,
-                                      textInputAction: TextInputAction.go,
-                                      keyboardType: TextInputType.url,
-                                      autocorrect: false,
-                                      style: const TextStyle(
-                                          color: Colors.white, fontSize: 14),
-                                      decoration: InputDecoration(
-                                        hintText: 'Buscar ou digitar URL...',
-                                        hintStyle: TextStyle(
-                                            color:
-                                                Colors.white.withOpacity(0.4),
-                                            fontSize: 14),
-                                        border: InputBorder.none,
-                                        isDense: true,
-                                        contentPadding: EdgeInsets.zero,
-                                      ),
-                                    ),
-                                  ),
-                                  if (_isEditing)
-                                    GestureDetector(
-                                      onTap: () => _searchController.clear(),
-                                      child: Padding(
-                                        padding:
-                                            const EdgeInsets.only(right: 8),
-                                        child: Icon(Icons.close,
-                                            size: 15,
-                                            color: Colors.white54),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-
-                          // Badge trackers
-                          if (_blockedCount > 0)
-                            Container(
-                              margin: const EdgeInsets.only(right: 2),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 5, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: accent.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                    color: accent.withOpacity(0.4)),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.shield,
-                                      size: 11, color: accent),
-                                  const SizedBox(width: 2),
-                                  Text('$_blockedCount',
-                                      style: TextStyle(
-                                          color: accent,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold)),
-                                ],
-                              ),
-                            ),
-
-                          // Navegação
-                          _btn(Icons.arrow_back_ios_new,
-                              () => _webController?.goBack()),
-                          _btn(Icons.arrow_forward_ios,
-                              () => _webController?.goForward()),
-                          _btn(Icons.refresh,
-                              () => _webController?.reload()),
                         ],
                       ),
                     ),
+
                     // Barra de progresso
                     _isLoading
                         ? LinearProgressIndicator(
@@ -247,11 +238,130 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
       ),
     );
   }
+}
 
-  Widget _btn(IconData icon, VoidCallback onTap) => IconButton(
-        onPressed: onTap,
-        icon: Icon(icon, size: 17, color: Colors.white70),
-        padding: const EdgeInsets.all(2),
-        constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
-      );
+// ================================================================
+//  Drawer de configurações (esqueleto — expandir depois)
+// ================================================================
+
+class _SettingsDrawer extends StatelessWidget {
+  final Color accent;
+  final Color barColor;
+
+  const _SettingsDrawer({required this.accent, required this.barColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return Drawer(
+      backgroundColor: const Color(0xFF0D0D1A),
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Cabeçalho
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              color: barColor,
+              child: Row(
+                children: [
+                  Icon(Icons.shield, color: accent, size: 22),
+                  const SizedBox(width: 10),
+                  Text(
+                    SearxNGConfig.appName,
+                    style: TextStyle(
+                      color: accent,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // Itens — cada um será uma tela de config futura
+            _DrawerItem(
+              icon: Icons.tune,
+              label: 'Configurações do navegador',
+              accent: accent,
+              onTap: () {
+                Navigator.pop(context);
+                // TODO: NavBar de configurações (próxima etapa)
+              },
+            ),
+            _DrawerItem(
+              icon: Icons.search,
+              label: 'Instância SearxNG',
+              accent: accent,
+              onTap: () {
+                Navigator.pop(context);
+                // TODO: tela para trocar URL base
+              },
+            ),
+            _DrawerItem(
+              icon: Icons.security,
+              label: 'Privacidade & Trackers',
+              accent: accent,
+              onTap: () {
+                Navigator.pop(context);
+                // TODO: lista de trackers bloqueados
+              },
+            ),
+            _DrawerItem(
+              icon: Icons.info_outline,
+              label: 'Sobre',
+              accent: accent,
+              onTap: () {
+                Navigator.pop(context);
+              },
+            ),
+
+            const Spacer(),
+
+            // Rodapé — instância ativa
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                SearxNGConfig.baseUrl,
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.3),
+                  fontSize: 11,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DrawerItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color accent;
+  final VoidCallback onTap;
+
+  const _DrawerItem({
+    required this.icon,
+    required this.label,
+    required this.accent,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon, color: accent, size: 20),
+      title: Text(
+        label,
+        style: const TextStyle(color: Colors.white70, fontSize: 15),
+      ),
+      trailing: const Icon(Icons.chevron_right,
+          color: Colors.white24, size: 18),
+      onTap: onTap,
+    );
+  }
 }
