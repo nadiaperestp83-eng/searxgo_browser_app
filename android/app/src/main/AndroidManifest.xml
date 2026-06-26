@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.pichillilorenzo.flutter_browser">
 
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
@@ -32,7 +33,6 @@
             </intent-filter>
         </activity>
 
-        <!-- VpnService do flutter_v2ray -->
         <service
             android:name="com.v2ray.ang.service.V2RayVpnService"
             android:exported="false"
