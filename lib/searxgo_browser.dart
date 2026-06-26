@@ -44,7 +44,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   static const Color _iconGray   = Color(0xFF5F5F5F);
   static const Color _accent     = Color(0xFF00D4FF);
 
-  // Configuração do WebView com fundo transparente
+  // Configuração do WebView (sem backgroundColor/transparentBackground)
   final InAppWebViewSettings _webSettings = InAppWebViewSettings(
     useShouldOverrideUrlLoading: true,
     useShouldInterceptRequest: true,
@@ -61,11 +61,11 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
     builtInZoomControls: false,
     displayZoomControls: false,
     supportZoom: true,
-    // 🔹 Fundo transparente para mostrar o gradiente do app
-    backgroundColor: Colors.transparent,
     userAgent:
         'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 '
         '(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+    // ⚠️ NÃO use backgroundColor ou transparentBackground – eles não existem nesta versão
+    // A transparência será obtida via CSS injetado
   );
 
   @override
@@ -118,12 +118,12 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   }
 
   // ================================================================
-  //  Injeção de CSS + MutationObserver para remover o cabeçalho
+  //  Injeção de CSS + MutationObserver para remover cabeçalho e fundo opaco
   // ================================================================
   void _injectHideHeaderCss(InAppWebViewController controller) {
     const script = """
       (function() {
-        // 1. Aplica CSS para esconder o cabeçalho e tornar fundo transparente
+        // 1. Aplica CSS para esconder o cabeçalho e tornar o fundo transparente
         const style = document.createElement('style');
         style.innerHTML = `
           #header, .header, #top-bar, .searxng-header, .navbar,
@@ -403,7 +403,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   Widget _buildBody() {
     return Stack(
       children: [
-        // WebView transparente
+        // WebView (sem propriedades de transparência, mas o CSS injetado cuidará disso)
         Offstage(
           offstage: _screen != _Screen.webview,
           child: InAppWebView(
@@ -415,7 +415,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
             onLoadStop: (c, url) {
               final u = url?.toString() ?? '';
               if (u.isNotEmpty && u != 'about:blank') {
-                // Injeta o script para remover cabeçalho e fundo
+                // Injeta o script para remover cabeçalho e tornar fundo transparente
                 _injectHideHeaderCss(c);
                 setState(() {
                   _webLoading = false;
