@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -44,7 +45,6 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   static const Color _iconGray   = Color(0xFF5F5F5F);
   static const Color _accent     = Color(0xFF00D4FF);
 
-  // Configuração do WebView (sem backgroundColor/transparentBackground)
   final InAppWebViewSettings _webSettings = InAppWebViewSettings(
     useShouldOverrideUrlLoading: true,
     useShouldInterceptRequest: true,
@@ -64,8 +64,6 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
     userAgent:
         'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 '
         '(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
-    // ⚠️ NÃO use backgroundColor ou transparentBackground – eles não existem nesta versão
-    // A transparência será obtida via CSS injetado
   );
 
   @override
@@ -118,51 +116,77 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   }
 
   // ================================================================
-  //  Injeção de CSS + MutationObserver para remover cabeçalho e fundo opaco
+  //  Script agressivo para remover cabeçalho e fundo opaco
   // ================================================================
   void _injectHideHeaderCss(InAppWebViewController controller) {
     const script = """
       (function() {
-        // 1. Aplica CSS para esconder o cabeçalho e tornar o fundo transparente
-        const style = document.createElement('style');
-        style.innerHTML = `
-          #header, .header, #top-bar, .searxng-header, .navbar,
-          .header-container, .nav, .top-nav, .search-header, .header-wrapper,
-          .header, .nav-header, .main-header {
-            display: none !important;
-          }
-          html, body {
-            background: transparent !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-          body {
-            margin-top: 0 !important;
-            padding-top: 0 !important;
-          }
-        `;
-        document.head.appendChild(style);
-
-        // 2. Remove imediatamente qualquer elemento que já exista
-        const selectors = [
-          '#header', '.header', '#top-bar', '.searxng-header', '.navbar',
-          '.header-container', '.nav', '.top-nav', '.search-header', '.header-wrapper',
-          '.header', '.nav-header', '.main-header'
-        ];
-        selectors.forEach(sel => {
-          document.querySelectorAll(sel).forEach(el => el.remove());
-        });
-
-        // 3. Observa mudanças no DOM para remover novos cabeçalhos
-        const observer = new MutationObserver(() => {
+        function removeHeaders() {
+          // Seletores genéricos
+          const selectors = [
+            'header', '.header', '#header', 'nav', '.nav', '#nav',
+            '.navbar', '#navbar', '.top-bar', '#top-bar',
+            '.searxng-header', '.header-container', '.header-wrapper',
+            '[role="banner"]', '[class*="header"]', '[id*="header"]',
+            '[class*="top"]', '[id*="top"]'
+          ];
           selectors.forEach(sel => {
-            document.querySelectorAll(sel).forEach(el => el.remove());
+            document.querySelectorAll(sel).forEach(el => {
+              const rect = el.getBoundingClientRect();
+              if (rect.top < 150 && rect.height > 20) {
+                el.remove();
+              }
+            });
           });
+          // Remove elementos com texto "SearxNG" ou "Pesquisar" no topo
+          document.querySelectorAll('*').forEach(el => {
+            const text = el.textContent || '';
+            if ((text.includes('SearxNG') || text.includes('Pesquisar')) && 
+                el.getBoundingClientRect().top < 150) {
+              el.remove();
+            }
+          });
+          // Torna fundo transparente
+          document.documentElement.style.background = 'transparent !important';
+          document.body.style.background = 'transparent !important';
+          document.body.style.margin = '0';
+          document.body.style.padding = '0';
+        }
+
+        removeHeaders();
+
+        const observer = new MutationObserver(() => {
+          removeHeaders();
         });
         observer.observe(document.body, { childList: true, subtree: true });
+
+        setTimeout(removeHeaders, 500);
+        setTimeout(removeHeaders, 1000);
+        setTimeout(removeHeaders, 2000);
+        setTimeout(removeHeaders, 3000);
       })();
     """;
     controller.evaluateJavascript(source: script);
+  }
+
+  // ================================================================
+  //  Carregar URL com tema simple
+  // ================================================================
+  void _loadInWebView(String url) {
+    final uri = Uri.parse(url);
+    final cleanUrl = uri
+        .replace(queryParameters: {'theme': 'simple', ...uri.queryParameters})
+        .toString();
+
+    setState(() {
+      _screen = _Screen.webview;
+      _webProgress = 0;
+      _webLoading = true;
+      _currentIsHttps = cleanUrl.startsWith('https://');
+      _currentUrl = cleanUrl;
+    });
+    _webController?.loadUrl(urlRequest: URLRequest(url: WebUri(cleanUrl)));
+    _searchController.text = _domainOnly(cleanUrl);
   }
 
   void _onSubmit(String input) {
@@ -174,18 +198,6 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
     } else {
       _doSearch(t);
     }
-  }
-
-  void _loadInWebView(String url) {
-    setState(() {
-      _screen = _Screen.webview;
-      _webProgress = 0;
-      _webLoading = true;
-      _currentIsHttps = url.startsWith('https://');
-      _currentUrl = url;
-    });
-    _webController?.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
-    _searchController.text = _domainOnly(url);
   }
 
   Future<void> _doSearch(String query) async {
@@ -334,7 +346,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
       ),
       body: Stack(
         children: [
-          // Gradiente ocupando TODA a tela
+          // GRADIENTE OCUPA TODA A TELA (inclusive atrás da status bar)
           Positioned.fill(
             child: Container(
               decoration: const BoxDecoration(
@@ -350,7 +362,6 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
               ),
             ),
           ),
-
           // Blobs decorativos
           Positioned(
             top: -80, left: -60,
@@ -364,14 +375,12 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
             bottom: 200, left: -40,
             child: _Blob(size: 200, color: const Color(0xFFF48FB1)),
           ),
-
-          // Corpo principal
+          // Corpo principal - top: 0 (sem topPadding)
           Positioned.fill(
-            top: topPadding + 68,
+            top: 0, // <-- AGORA OCUPA TODA A TELA
             child: _buildBody(),
           ),
-
-          // Pílula flutuante
+          // Pílula flutuante - mantém topPadding para não ficar atrás do notch
           Positioned(
             top: topPadding + 8,
             left: 12,
@@ -403,7 +412,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   Widget _buildBody() {
     return Stack(
       children: [
-        // WebView (sem propriedades de transparência, mas o CSS injetado cuidará disso)
+        // WebView
         Offstage(
           offstage: _screen != _Screen.webview,
           child: InAppWebView(
@@ -415,8 +424,11 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
             onLoadStop: (c, url) {
               final u = url?.toString() ?? '';
               if (u.isNotEmpty && u != 'about:blank') {
-                // Injeta o script para remover cabeçalho e tornar fundo transparente
+                // Injeção múltipla para garantir
                 _injectHideHeaderCss(c);
+                Timer(const Duration(milliseconds: 500), () => _injectHideHeaderCss(c));
+                Timer(const Duration(seconds: 1), () => _injectHideHeaderCss(c));
+                Timer(const Duration(seconds: 2), () => _injectHideHeaderCss(c));
                 setState(() {
                   _webLoading = false;
                   _webProgress = 1;
@@ -428,8 +440,12 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
                 });
               }
             },
-            onProgressChanged: (c, p) =>
-                setState(() => _webProgress = p / 100.0),
+            onProgressChanged: (c, p) {
+              setState(() => _webProgress = p / 100.0);
+              if (p >= 70) {
+                _injectHideHeaderCss(c);
+              }
+            },
             shouldOverrideUrlLoading: (c, action) async {
               final url = action.request.url?.toString() ?? '';
               if (SearxNGConfig.isTracker(url)) {
@@ -452,7 +468,6 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
             },
           ),
         ),
-
         // Home
         if (_screen == _Screen.home)
           Center(
@@ -498,7 +513,6 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
               ],
             ),
           ),
-
         // Resultados
         if (_screen == _Screen.results)
           _isSearching
