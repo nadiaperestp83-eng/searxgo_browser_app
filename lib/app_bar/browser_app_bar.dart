@@ -6,6 +6,7 @@ import 'package:flutter_browser/util.dart';
 
 class BrowserAppBar extends StatefulWidget implements PreferredSizeWidget {
   BrowserAppBar({super.key})
+      // Ajustamos o tamanho para não deixar espaço extra de status bar no cálculo do Scaffold
       : preferredSize =
             Size.fromHeight(Util.isMobile() ? kToolbarHeight : 90.0);
 
@@ -43,8 +44,14 @@ class _BrowserAppBarState extends State<BrowserAppBar> {
             },
           ));
 
-    return Column(
-      children: children,
+    // O MediaQuery.removePadding remove o espaço que o Scaffold 
+    // reserva automaticamente para a barra de status do sistema.
+    return MediaQuery.removePadding(
+      context: context,
+      removeTop: true,
+      child: Column(
+        children: children,
+      ),
     );
   }
 }
