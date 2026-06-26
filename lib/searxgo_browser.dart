@@ -36,20 +36,17 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   SearchResponse? _searchResponse;
   String? _errorMsg;
 
-  static const Color _pageBg    = Color(0xFFEEEEEE);
-  static const Color _barBg     = Color(0xFFF1F1F1);
-  static const Color _pillBg    = Colors.white;
-  static const Color _iconGray  = Color(0xFF5F5F5F);
-  static const Color _hintGray  = Color(0xFF8A8A8A);
-  static const Color _cardBg    = Color(0xFFFFFFFF);
+  static const Color _pageBg     = Color(0xFFEEEEEE);
+  static const Color _cardBg     = Color(0xFFFFFFFF);
   static const Color _cardBorder = Color(0xFFE0E0E0);
-  static const Color _textMain  = Color(0xFF1A1A1A);
-  static const Color _textSub   = Color(0xFF5F5F5F);
-  static const Color _accent    = Color(0xFF00D4FF);
+  static const Color _textMain   = Color(0xFF1A1A1A);
+  static const Color _textSub    = Color(0xFF5F5F5F);
+  static const Color _iconGray   = Color(0xFF5F5F5F);
+  static const Color _hintGray   = Color(0xFF8A8A8A);
+  static const Color _accent     = Color(0xFF00D4FF);
 
   final InAppWebViewSettings _webSettings = InAppWebViewSettings(
     useShouldOverrideUrlLoading: true,
-    // ── shouldInterceptRequest ativa bloqueio real de rastreadores ──
     useShouldInterceptRequest: true,
     javaScriptEnabled: true,
     domStorageEnabled: true,
@@ -264,7 +261,8 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
       value: SystemUiOverlayStyle.dark,
       child: Scaffold(
         key: _scaffoldKey,
-        backgroundColor: _pageBg,
+        // Fundo transparente — mostra o gradiente do Stack
+        backgroundColor: Colors.transparent,
         endDrawer: _SettingsDrawer(
           accent: _accent,
           vpn: vpn,
@@ -273,30 +271,76 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
             _burnAll();
           },
         ),
-        body: SafeArea(
-          child: Column(
-            children: [
-              _TopBar(
-                controller: _searchController,
-                focusNode: _searchFocus,
-                accent: _accent,
-                isEditing: _isEditing,
-                isWebLoading: _webLoading,
-                webProgress: _webProgress,
-                blockedCount: _blockedCount,
-                showBack: _screen != _Screen.home,
-                leadingIcon: leadingIcon,
-                leadingIconColor: leadingIconColor,
-                vpnActive: vpn.isActive,
-                onSubmit: _onSubmit,
-                onBack: _goBack,
-                onMenuTap: () => _scaffoldKey.currentState?.openEndDrawer(),
-                onFireTap: _burnAll,
-                onTabsTap: _onTabsTap,
+        body: Stack(
+          children: [
+            // ── Fundo gradiente glassmorphism ────────────────
+            Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFFDFE9FF),
+                    Color(0xFFEDE7F6),
+                    Color(0xFFE0F7FA),
+                  ],
+                ),
               ),
-              Expanded(child: _buildBody()),
-            ],
-          ),
+            ),
+
+            // Blobs coloridos
+            Positioned(
+              top: -80, left: -60,
+              child: _Blob(size: 280, color: const Color(0xFFB39DDB)),
+            ),
+            Positioned(
+              top: 200, right: -60,
+              child: _Blob(size: 220, color: const Color(0xFF80DEEA)),
+            ),
+            Positioned(
+              bottom: 200, left: -40,
+              child: _Blob(size: 200, color: const Color(0xFFF48FB1)),
+            ),
+
+            // ── Conteúdo principal ───────────────────────────
+            SafeArea(
+              child: Stack(
+                children: [
+                  // Corpo (home / results / webview)
+                  Positioned.fill(
+                    top: 68, // espaço para a pílula flutuante
+                    child: _buildBody(),
+                  ),
+
+                  // ── Pílula flutuante (SEM container/barra) ──
+                  Positioned(
+                    top: 10,
+                    left: 12,
+                    right: 12,
+                    child: _FloatingPill(
+                      controller: _searchController,
+                      focusNode: _searchFocus,
+                      accent: _accent,
+                      isEditing: _isEditing,
+                      isWebLoading: _webLoading,
+                      webProgress: _webProgress,
+                      blockedCount: _blockedCount,
+                      showBack: _screen != _Screen.home,
+                      leadingIcon: leadingIcon,
+                      leadingIconColor: leadingIconColor,
+                      vpnActive: vpn.isActive,
+                      onSubmit: _onSubmit,
+                      onBack: _goBack,
+                      onMenuTap: () =>
+                          _scaffoldKey.currentState?.openEndDrawer(),
+                      onFireTap: _burnAll,
+                      onTabsTap: _onTabsTap,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -305,7 +349,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   Widget _buildBody() {
     return Stack(
       children: [
-        // ── WebView com shouldInterceptRequest ───────────────
+        // WebView
         Offstage(
           offstage: _screen != _Screen.webview,
           child: InAppWebView(
@@ -330,8 +374,6 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
             },
             onProgressChanged: (c, p) =>
                 setState(() => _webProgress = p / 100.0),
-
-            // ── Bloqueio de navegação (URLs de rastreadores) ─
             shouldOverrideUrlLoading: (c, action) async {
               final url = action.request.url?.toString() ?? '';
               if (SearxNGConfig.isTracker(url)) {
@@ -340,73 +382,83 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
               }
               return NavigationActionPolicy.ALLOW;
             },
-
-            // ── shouldInterceptRequest: bloqueia TODOS os
-            //    sub-recursos (scripts, imagens, XHR, fetch)
-            //    de rastreadores — coração do bloqueio real ──
             shouldInterceptRequest: (c, request) async {
               final url = request.url.toString();
               if (SearxNGConfig.isTracker(url)) {
                 setState(() => _blockedCount++);
-                // Retorna resposta vazia — recurso não carrega
                 return WebResourceResponse(
                   contentType: 'text/plain',
                   statusCode: 200,
                   data: Uint8List(0),
                 );
               }
-              // null = deixa carregar normalmente
               return null;
             },
           ),
         ),
 
-        // Home
+        // Home — só escudo + nome + subtexto, sem chips
         if (_screen == _Screen.home)
-          Container(
-            color: _pageBg,
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.shield, size: 64,
-                      color: _accent.withOpacity(0.5)),
-                  const SizedBox(height: 16),
-                  Text(SearxNGConfig.appName,
-                      style: const TextStyle(
-                        color: Color(0xFF1A1A2E),
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 2,
-                      )),
-                  const SizedBox(height: 8),
-                  const Text('Busca privada — sem rastreadores',
-                      style: TextStyle(color: _iconGray, fontSize: 14)),
-                ],
-              ),
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 88, height: 88,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(28),
+                    border: Border.all(
+                        color: Colors.white.withOpacity(0.9), width: 1.5),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF7C4DFF).withOpacity(0.15),
+                        blurRadius: 32,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.shield,
+                      size: 44, color: Color(0xFF80DEEA)),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'SearxGo',
+                  style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF1A1A3E),
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Busca privada — sem rastreadores',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: const Color(0xFF3C3C64).withOpacity(0.55),
+                  ),
+                ),
+              ],
             ),
           ),
 
         // Resultados
         if (_screen == _Screen.results)
           _isSearching
-              ? Container(
-                  color: _pageBg,
-                  child: const Center(
-                      child: CircularProgressIndicator(
-                          color: Color(0xFF1A1A2E))))
+              ? const Center(
+                  child: CircularProgressIndicator(
+                      color: Color(0xFF1A1A2E)))
               : _errorMsg != null
-                  ? Container(
-                      color: _pageBg,
-                      child: Center(
-                          child: Text(_errorMsg!,
-                              style: const TextStyle(
-                                  color: Colors.redAccent))))
+                  ? Center(
+                      child: Text(_errorMsg!,
+                          style: const TextStyle(
+                              color: Colors.redAccent)))
                   : _searchResponse != null
                       ? _ResultsScreen(
                           response: _searchResponse!,
                           accent: _accent,
-                          pageBg: _pageBg,
+                          pageBg: Colors.transparent,
                           cardBg: _cardBg,
                           cardBorder: _cardBorder,
                           textMain: _textMain,
@@ -421,9 +473,33 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
 }
 
 // ================================================================
-//  Barra fixa
+//  Blob decorativo
 // ================================================================
-class _TopBar extends StatelessWidget {
+class _Blob extends StatelessWidget {
+  final double size;
+  final Color color;
+  const _Blob({required this.size, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size, height: size,
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.45),
+        shape: BoxShape.circle,
+      ),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 70, sigmaY: 70),
+        child: const SizedBox.expand(),
+      ),
+    );
+  }
+}
+
+// ================================================================
+//  Pílula flutuante — SEM container/barra atrás
+// ================================================================
+class _FloatingPill extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
   final Color accent;
@@ -435,12 +511,7 @@ class _TopBar extends StatelessWidget {
   final ValueChanged<String> onSubmit;
   final VoidCallback onBack, onMenuTap, onFireTap, onTabsTap;
 
-  static const Color _barBg    = Color(0xFFF1F1F1);
-  static const Color _pillBg   = Colors.white;
-  static const Color _iconGray = Color(0xFF5F5F5F);
-  static const Color _hintGray = Color(0xFF8A8A8A);
-
-  const _TopBar({
+  const _FloatingPill({
     required this.controller,
     required this.focusNode,
     required this.accent,
@@ -464,177 +535,228 @@ class _TopBar extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          color: _barBg,
-          padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
-          child: Row(
-            children: [
-              if (showBack)
-                IconButton(
-                  onPressed: onBack,
-                  icon: const Icon(Icons.arrow_back,
-                      color: _iconGray, size: 20),
-                  padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints(minWidth: 32, minHeight: 32),
-                ),
+        Row(
+          children: [
+            // Botão voltar
+            if (showBack)
+              _PillBtn(
+                onTap: onBack,
+                child: const Icon(Icons.arrow_back,
+                    color: Color(0xFF5F5F5F), size: 20),
+              ),
 
-              // Pílula de busca
-              Expanded(
-                child: Container(
-                  height: 44,
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  decoration: BoxDecoration(
-                    color: _pillBg,
-                    borderRadius: BorderRadius.circular(22),
-                    border: isEditing
-                        ? Border.all(color: accent, width: 1.5)
-                        : null,
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x14000000),
-                        blurRadius: 4,
-                        offset: Offset(0, 1),
+            // Pílula de busca — glass, sem fundo externo
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                  child: Container(
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.82),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                        color: isEditing
+                            ? accent
+                            : Colors.white.withOpacity(0.95),
+                        width: isEditing ? 1.5 : 1,
                       ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      const SizedBox(width: 14),
-                      Icon(leadingIcon, size: 16, color: leadingIconColor),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextField(
-                          controller: controller,
-                          focusNode: focusNode,
-                          onTap: () {
-                            controller.selection = TextSelection(
-                              baseOffset: 0,
-                              extentOffset: controller.text.length,
-                            );
-                          },
-                          onSubmitted: onSubmit,
-                          textInputAction: TextInputAction.go,
-                          keyboardType: TextInputType.url,
-                          autocorrect: false,
-                          style: const TextStyle(
-                            color: Colors.black87,
-                            fontSize: 16,
-                          ),
-                          decoration: const InputDecoration(
-                            hintText: 'Pesquisar',
-                            hintStyle: TextStyle(
-                                color: _hintGray, fontSize: 16),
-                            border: InputBorder.none,
-                            isDense: true,
-                            contentPadding: EdgeInsets.zero,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.12),
+                          blurRadius: 20,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 16),
+                        Icon(leadingIcon,
+                            size: 16, color: leadingIconColor),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: controller,
+                            focusNode: focusNode,
+                            onTap: () {
+                              controller.selection = TextSelection(
+                                baseOffset: 0,
+                                extentOffset: controller.text.length,
+                              );
+                            },
+                            onSubmitted: onSubmit,
+                            textInputAction: TextInputAction.go,
+                            keyboardType: TextInputType.url,
+                            autocorrect: false,
+                            style: const TextStyle(
+                                color: Colors.black87, fontSize: 16),
+                            decoration: const InputDecoration(
+                              hintText: 'Pesquisar',
+                              hintStyle: TextStyle(
+                                  color: Color(0xFF8A8A8A), fontSize: 16),
+                              border: InputBorder.none,
+                              isDense: true,
+                              contentPadding: EdgeInsets.zero,
+                            ),
                           ),
                         ),
-                      ),
-
-                      // Ícone VPN na pílula
-                      if (vpnActive)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(8),
+                        // Badge VPN
+                        if (vpnActive && !isEditing)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.vpn_lock,
+                                      size: 12, color: Colors.green),
+                                  SizedBox(width: 3),
+                                  Text('VPN',
+                                      style: TextStyle(
+                                          color: Colors.green,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold)),
+                                ],
+                              ),
                             ),
-                            child: const Row(
+                          ),
+                        // Badge trackers
+                        if (blockedCount > 0 && !isEditing)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.vpn_lock,
-                                    size: 13, color: Colors.green),
-                                SizedBox(width: 3),
-                                Text('VPN',
+                                Icon(Icons.shield,
+                                    size: 12, color: accent),
+                                const SizedBox(width: 2),
+                                Text('$blockedCount',
                                     style: TextStyle(
-                                        color: Colors.green,
+                                        color: accent,
                                         fontSize: 11,
                                         fontWeight: FontWeight.bold)),
                               ],
                             ),
-                          ),
-                        ),
-
-                      // Badge trackers
-                      if (blockedCount > 0 && !isEditing)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.shield, size: 13, color: accent),
-                              const SizedBox(width: 2),
-                              Text('$blockedCount',
-                                  style: TextStyle(
-                                      color: accent,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                        )
-                      else if (!vpnActive)
-                        const SizedBox(width: 4),
-                    ],
+                          )
+                        else
+                          const SizedBox(width: 8),
+                      ],
+                    ),
                   ),
                 ),
               ),
+            ),
 
-              // Fogo
-              IconButton(
-                onPressed: onFireTap,
-                icon: const Icon(Icons.local_fire_department,
-                    color: Color(0xFFE07A2A), size: 22),
-                padding: EdgeInsets.zero,
-                constraints:
-                    const BoxConstraints(minWidth: 36, minHeight: 36),
-              ),
+            const SizedBox(width: 6),
 
-              // Abas
-              InkWell(
-                onTap: onTabsTap,
-                borderRadius: BorderRadius.circular(6),
-                child: Container(
-                  width: 28,
-                  height: 28,
-                  margin: const EdgeInsets.symmetric(horizontal: 2),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: _iconGray, width: 1.6),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  alignment: Alignment.center,
-                  child: const Text('1',
-                      style: TextStyle(
-                          color: _iconGray,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600)),
+            // Fogo
+            _PillBtn(
+              onTap: onFireTap,
+              child: const Icon(Icons.local_fire_department,
+                  color: Color(0xFFE07A2A), size: 22),
+            ),
+
+            const SizedBox(width: 4),
+
+            // Abas
+            GestureDetector(
+              onTap: onTabsTap,
+              child: Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.75),
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(
+                      color: const Color(0xFF5F5F5F).withOpacity(0.4),
+                      width: 1.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.08),
+                      blurRadius: 8,
+                    ),
+                  ],
                 ),
+                alignment: Alignment.center,
+                child: const Text('1',
+                    style: TextStyle(
+                        color: Color(0xFF5F5F5F),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700)),
               ),
+            ),
 
-              // Menu
-              IconButton(
-                onPressed: onMenuTap,
-                icon: const Icon(Icons.menu, color: _iconGray, size: 22),
-                padding: EdgeInsets.zero,
-                constraints:
-                    const BoxConstraints(minWidth: 36, minHeight: 36),
-              ),
-            ],
-          ),
+            const SizedBox(width: 4),
+
+            // Menu
+            _PillBtn(
+              onTap: onMenuTap,
+              child: const Icon(Icons.menu,
+                  color: Color(0xFF5F5F5F), size: 22),
+            ),
+          ],
         ),
-        isWebLoading && webProgress > 0 && webProgress < 1
-            ? LinearProgressIndicator(
+
+        // Barra de progresso sob a pílula
+        if (isWebLoading && webProgress > 0 && webProgress < 1)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: LinearProgressIndicator(
                 value: webProgress,
                 backgroundColor: Colors.transparent,
                 valueColor: const AlwaysStoppedAnimation<Color>(
                     Color(0xFF1A73E8)),
                 minHeight: 3,
-              )
-            : const SizedBox(height: 1),
+              ),
+            ),
+          ),
       ],
+    );
+  }
+}
+
+// Botão circular glass ao lado da pílula
+class _PillBtn extends StatelessWidget {
+  final VoidCallback onTap;
+  final Widget child;
+  const _PillBtn({required this.onTap, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(21),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          child: Container(
+            width: 42, height: 42,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.75),
+              shape: BoxShape.circle,
+              border: Border.all(
+                  color: Colors.white.withOpacity(0.9), width: 1),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: child,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -662,32 +784,29 @@ class _ResultsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: pageBg,
-      child: ListView.builder(
-        padding: const EdgeInsets.only(top: 8, bottom: 24),
-        itemCount: response.results.length +
-            (response.suggestions.isNotEmpty ? 1 : 0),
-        itemBuilder: (context, index) {
-          if (index == response.results.length) {
-            return _SuggestionsRow(
-              suggestions: response.suggestions,
-              accent: accent,
-              onTap: onSuggestionTap,
-            );
-          }
-          final r = response.results[index];
-          return _ResultCard(
-            result: r,
+    return ListView.builder(
+      padding: const EdgeInsets.only(top: 8, bottom: 24),
+      itemCount: response.results.length +
+          (response.suggestions.isNotEmpty ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index == response.results.length) {
+          return _SuggestionsRow(
+            suggestions: response.suggestions,
             accent: accent,
-            cardBg: cardBg,
-            cardBorder: cardBorder,
-            textMain: textMain,
-            textSub: textSub,
-            onTap: () => onResultTap(r.url),
+            onTap: onSuggestionTap,
           );
-        },
-      ),
+        }
+        final r = response.results[index];
+        return _ResultCard(
+          result: r,
+          accent: accent,
+          cardBg: cardBg,
+          cardBorder: cardBorder,
+          textMain: textMain,
+          textSub: textSub,
+          onTap: () => onResultTap(r.url),
+        );
+      },
     );
   }
 }
@@ -723,9 +842,16 @@ class _ResultCard extends StatelessWidget {
         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: cardBg,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: cardBorder),
+          color: cardBg.withOpacity(0.75),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withOpacity(0.9)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 12,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -798,17 +924,26 @@ class _SuggestionsRow extends StatelessWidget {
             children: suggestions
                 .map((s) => GestureDetector(
                       onTap: () => onTap(s),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          border: Border.all(color: const Color(0xFFE0E0E0)),
-                          borderRadius: BorderRadius.circular(16),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: BackdropFilter(
+                          filter:
+                              ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.7),
+                              border: Border.all(
+                                  color: Colors.white.withOpacity(0.9)),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Text(s,
+                                style: const TextStyle(
+                                    color: Color(0xFF1558D6),
+                                    fontSize: 13)),
+                          ),
                         ),
-                        child: Text(s,
-                            style: const TextStyle(
-                                color: Color(0xFF1558D6), fontSize: 13)),
                       ),
                     ))
                 .toList(),
@@ -833,23 +968,20 @@ class _SettingsDrawer extends StatelessWidget {
     required this.onBurnTap,
   });
 
-  static const Color _drawerBg  = Color(0xFFF5F5F5);
-  static const Color _headerBg  = Color(0xFFEEEEEE);
-  static const Color _iconGray  = Color(0xFF5F5F5F);
+  static const Color _iconGray = Color(0xFF5F5F5F);
 
   @override
   Widget build(BuildContext context) {
     return Drawer(
-      backgroundColor: _drawerBg,
+      backgroundColor: const Color(0xFFF5F5F5),
       child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Cabeçalho
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(20),
-              color: _headerBg,
+              color: const Color(0xFFEEEEEE),
               child: Row(
                 children: [
                   Icon(Icons.shield, color: accent, size: 22),
@@ -862,10 +994,9 @@ class _SettingsDrawer extends StatelessWidget {
                 ],
               ),
             ),
-
             const SizedBox(height: 8),
 
-            // ── VPN Toggle ───────────────────────────────────
+            // VPN Toggle
             Container(
               margin: const EdgeInsets.symmetric(
                   horizontal: 12, vertical: 4),
@@ -881,35 +1012,25 @@ class _SettingsDrawer extends StatelessWidget {
                 ),
               ),
               child: ListTile(
-                leading: Icon(
-                  Icons.vpn_lock,
-                  color: vpn.isActive ? Colors.green : Colors.red,
-                  size: 22,
-                ),
-                title: Text(
-                  'VPN — WARP',
-                  style: TextStyle(
-                    color: vpn.isActive ? Colors.green : _iconGray,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                subtitle: Text(
-                  vpn.status,
-                  style: TextStyle(
-                    color: vpn.isActive
-                        ? Colors.green.withOpacity(0.8)
-                        : const Color(0xFF8A8A8A),
-                    fontSize: 12,
-                  ),
-                ),
+                leading: Icon(Icons.vpn_lock,
+                    color: vpn.isActive ? Colors.green : Colors.red,
+                    size: 22),
+                title: Text('VPN — V2Ray VLESS',
+                    style: TextStyle(
+                        color: vpn.isActive ? Colors.green : _iconGray,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600)),
+                subtitle: Text(vpn.status,
+                    style: TextStyle(
+                        color: vpn.isActive
+                            ? Colors.green.withOpacity(0.8)
+                            : const Color(0xFF8A8A8A),
+                        fontSize: 12)),
                 trailing: vpn.isConnecting
                     ? const SizedBox(
-                        width: 20,
-                        height: 20,
+                        width: 20, height: 20,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.green),
-                      )
+                            strokeWidth: 2, color: Colors.green))
                     : Switch(
                         value: vpn.isActive,
                         onChanged: (_) => vpn.toggle(),
@@ -920,7 +1041,7 @@ class _SettingsDrawer extends StatelessWidget {
 
             const Divider(color: Color(0xFFE0E0E0), height: 16),
 
-            // Botão fogo
+            // Fogo
             ListTile(
               leading: const Icon(Icons.local_fire_department,
                   color: Color(0xFFE07A2A), size: 22),
