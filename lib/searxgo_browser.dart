@@ -351,7 +351,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
                 // Retorna resposta vazia — recurso não carrega
                 return WebResourceResponse(
                   contentType: 'text/plain',
-                  httpStatusCode: 200,
+                  statusCode: 200,
                   data: Uint8List(0),
                 );
               }
