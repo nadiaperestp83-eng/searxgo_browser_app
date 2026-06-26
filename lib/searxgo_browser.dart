@@ -259,11 +259,18 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
     }
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.dark,
+      // 🔹 Torna a status bar transparente para o gradiente aparecer atrás
+      value: SystemUiOverlayStyle.dark.copyWith(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.dark,
+      ),
       child: Scaffold(
         key: _scaffoldKey,
-        // Fundo transparente — mostra o gradiente do Stack
         backgroundColor: Colors.transparent,
+        // 🔹 Permite que o body ocupe toda a tela, incluindo a área da status bar
+        extendBodyBehindAppBar: true,
         endDrawer: _SettingsDrawer(
           accent: _accent,
           vpn: vpn,
@@ -303,8 +310,9 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
               child: _Blob(size: 200, color: const Color(0xFFF48FB1)),
             ),
 
-            // ── Conteúdo principal ───────────────────────────
+            // ── Conteúdo principal (sem padding superior) ──
             SafeArea(
+              top: false, // 🔹 Remove a margem forçada no topo
               child: Stack(
                 children: [
                   // Corpo (home / results / webview)
@@ -313,7 +321,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
                     child: _buildBody(),
                   ),
 
-                  // ── Pílula flutuante (SEM container/barra) ──
+                  // ── Pílula flutuante ──
                   Positioned(
                     top: 10,
                     left: 12,
@@ -398,7 +406,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
           ),
         ),
 
-        // Home — só escudo + nome + subtexto, sem chips
+        // Home — escudo + nome + subtexto
         if (_screen == _Screen.home)
           Center(
             child: Column(
