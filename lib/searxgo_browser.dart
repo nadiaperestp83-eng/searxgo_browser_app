@@ -44,9 +44,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   static const Color _iconGray   = Color(0xFF5F5F5F);
   static const Color _accent     = Color(0xFF00D4FF);
 
-  // ================================================================
-  // Configuração do WebView com CSS para esconder o cabeçalho do SearxNG
-  // ================================================================
+  // Configuração do WebView (sem initialCSS)
   final InAppWebViewSettings _webSettings = InAppWebViewSettings(
     useShouldOverrideUrlLoading: true,
     useShouldInterceptRequest: true,
@@ -66,34 +64,13 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
     userAgent:
         'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 '
         '(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
-    // ⬇️ INJEÇÃO DE CSS PARA REMOVER A BARRA PRETA DO SEARXNG ⬇️
-    initialCSS: """
-      /* Esconde o cabeçalho completo do SearxNG */
-      #header,
-      .header,
-      #top-bar,
-      .searxng-header,
-      .navbar,
-      .header-container,
-      .nav,
-      .top-nav,
-      .search-header,
-      .header-wrapper {
-        display: none !important;
-      }
-      /* Remove qualquer margem/padding extra no topo do body */
-      body {
-        margin-top: 0 !important;
-        padding-top: 0 !important;
-      }
-    """,
   );
 
   @override
   void initState() {
     super.initState();
 
-    // Força edge-to-edge também aqui para garantir
+    // Força edge-to-edge para garantir
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -137,6 +114,27 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
     } catch (_) {
       return url;
     }
+  }
+
+  // ================================================================
+  //  Injeção de CSS para esconder o cabeçalho do SearxNG
+  // ================================================================
+  void _injectHideHeaderCss(InAppWebViewController controller) {
+    const css = """
+      var style = document.createElement('style');
+      style.innerHTML = `
+        #header, .header, #top-bar, .searxng-header, .navbar,
+        .header-container, .nav, .top-nav, .search-header, .header-wrapper {
+          display: none !important;
+        }
+        body {
+          margin-top: 0 !important;
+          padding-top: 0 !important;
+        }
+      `;
+      document.head.appendChild(style);
+    """;
+    controller.evaluateJavascript(source: css);
   }
 
   void _onSubmit(String input) {
@@ -278,7 +276,6 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   @override
   Widget build(BuildContext context) {
     final vpn = context.watch<VpnService>();
-    // Usa viewPadding para pegar a altura real da status bar no modo edgeToEdge
     final topPadding = MediaQuery.of(context).viewPadding.top;
 
     IconData leadingIcon;
@@ -383,13 +380,15 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
           offstage: _screen != _Screen.webview,
           child: InAppWebView(
             initialUrlRequest: URLRequest(url: WebUri('about:blank')),
-            initialSettings: _webSettings, // <-- aqui usamos as configs com CSS
+            initialSettings: _webSettings,
             onWebViewCreated: (c) => _webController = c,
             onLoadStart: (c, url) =>
                 setState(() { _webLoading = true; _webProgress = 0; }),
             onLoadStop: (c, url) {
               final u = url?.toString() ?? '';
               if (u.isNotEmpty && u != 'about:blank') {
+                // Injeta o CSS para remover o cabeçalho preto
+                _injectHideHeaderCss(c);
                 setState(() {
                   _webLoading = false;
                   _webProgress = 1;
