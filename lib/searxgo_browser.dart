@@ -11,6 +11,7 @@ import 'models/search_result.dart';
 import 'models/browser_tab.dart';
 import 'services/tab_manager.dart';
 import 'services/search_engine_provider.dart';
+import 'services/site_script_config.dart';
 import 'vpn_service.dart';
 import 'privacy_screen.dart';
 
@@ -63,7 +64,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   // progresso), usada para empurrar o conteúdo (WebView/lista de
   // resultados) para baixo dela, evitando que o topo da página fique
   // escondido atrás da navbar flutuante.
-  static const double _pillReservedHeight = 76.0;
+  static const double _pillReservedHeight = 92.0;
 
   final InAppWebViewSettings _webSettings = InAppWebViewSettings(
     useShouldOverrideUrlLoading: true,
@@ -189,6 +190,17 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
       })();
     """;
     controller.evaluateJavascript(source: script);
+  }
+
+  // ── Some com banners de "instale o app"/"baixe nosso navegador" nos
+  // buscadores externos (DDG, Brave, Startpage, Mojeek). Cada host tem
+  // sua própria config em SiteScriptConfig — hosts sem config aqui
+  // simplesmente não sofrem nenhuma alteração (no-op).
+  void _injectSiteCleanup(InAppWebViewController controller, String url) {
+    final host = Uri.tryParse(url)?.host ?? '';
+    final config = SiteScriptConfig.forHost(host);
+    if (config == null) return;
+    controller.evaluateJavascript(source: config.buildJs());
   }
 
   void _loadInWebView(String url) {
@@ -488,8 +500,8 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
             duration: const Duration(milliseconds: 220),
             curve: Curves.easeOutCubic,
             top: showPill ? topPadding + 8 : -(_pillReservedHeight + 20),
-            left: 12,
-            right: 12,
+            left: 16,
+            right: 16,
             child: IgnorePointer(
               ignoring: !showPill,
               child: AnimatedOpacity(
@@ -549,10 +561,15 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
                 final u = url?.toString() ?? '';
                 if (u.isNotEmpty && u != 'about:blank') {
                   _injectHideHeaderCss(c, u);
-                  Timer(const Duration(milliseconds: 500),
-                      () => _injectHideHeaderCss(c, u));
-                  Timer(const Duration(seconds: 1),
-                      () => _injectHideHeaderCss(c, u));
+                  _injectSiteCleanup(c, u);
+                  Timer(const Duration(milliseconds: 500), () {
+                    _injectHideHeaderCss(c, u);
+                    _injectSiteCleanup(c, u);
+                  });
+                  Timer(const Duration(seconds: 1), () {
+                    _injectHideHeaderCss(c, u);
+                    _injectSiteCleanup(c, u);
+                  });
                   _reloadAttempts = 0; // carregou com sucesso, zera contador
                   setState(() {
                     _webLoading = false;
@@ -567,7 +584,10 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
               },
               onProgressChanged: (c, p) {
                 setState(() => _webProgress = p / 100.0);
-                if (p >= 70) _injectHideHeaderCss(c, _currentUrl);
+                if (p >= 70) {
+                  _injectHideHeaderCss(c, _currentUrl);
+                  _injectSiteCleanup(c, _currentUrl);
+                }
               },
               // ── Esconde/mostra a pílula conforme a direção do scroll ──
               // Rolou pra baixo: some (animado). Rolou pra cima ou chegou
@@ -807,14 +827,14 @@ class _FloatingPill extends StatelessWidget {
             ],
             Expanded(
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(28),
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
                   child: Container(
-                    height: 48,
+                    height: 56,
                     decoration: BoxDecoration(
                       color: Colors.white.withOpacity(0.82),
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(28),
                       border: Border.all(
                         color: isEditing
                             ? accent
@@ -831,9 +851,9 @@ class _FloatingPill extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
-                        const SizedBox(width: 16),
-                        Icon(leadingIcon, size: 16, color: leadingIconColor),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 20),
+                        Icon(leadingIcon, size: 18, color: leadingIconColor),
+                        const SizedBox(width: 12),
                         Expanded(
                           child: TextField(
                             controller: controller,
@@ -849,14 +869,15 @@ class _FloatingPill extends StatelessWidget {
                             keyboardType: TextInputType.url,
                             autocorrect: false,
                             style: const TextStyle(
-                                color: Colors.black87, fontSize: 16),
+                                color: Colors.black87, fontSize: 17),
                             decoration: const InputDecoration(
                               hintText: 'Pesquisar',
                               hintStyle: TextStyle(
-                                  color: Color(0xFF8A8A8A), fontSize: 16),
+                                  color: Color(0xFF8A8A8A), fontSize: 17),
                               border: InputBorder.none,
                               isDense: true,
-                              contentPadding: EdgeInsets.zero,
+                              contentPadding:
+                                  EdgeInsets.symmetric(vertical: 14),
                             ),
                           ),
                         ),
