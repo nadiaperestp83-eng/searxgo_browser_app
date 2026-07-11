@@ -32,6 +32,8 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   bool _isEditing = false;
   double _webProgress = 0;
   bool _webLoading = false;
+  bool _hasLoadError = false;
+  int _reloadAttempts = 0;
   int _blockedCount = 0;
   bool _currentIsHttps = false;
   String _currentUrl = '';
@@ -48,6 +50,12 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   static const Color _textSub    = Color(0xFF5F5F5F);
   static const Color _iconGray   = Color(0xFF5F5F5F);
   static const Color _accent     = Color(0xFF00D4FF);
+
+  // Altura reservada para a pílula flutuante (barra + gap + barra de
+  // progresso), usada para empurrar o conteúdo (WebView/lista de
+  // resultados) para baixo dela, evitando que o topo da página fique
+  // escondido atrás da navbar flutuante.
+  static const double _pillReservedHeight = 76.0;
 
   final InAppWebViewSettings _webSettings = InAppWebViewSettings(
     useShouldOverrideUrlLoading: true,
@@ -119,16 +127,28 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
     }
   }
 
-  void _injectHideHeaderCss(InAppWebViewController controller) {
+  // Só faz sentido remover o header do SearxNG (o tema do nosso próprio
+  // motor de busca), nunca em sites de terceiros. Antes este script rodava
+  // em QUALQUER página carregada e usava seletores genéricos demais
+  // ('[class*="header"]', '[class*="top"]', etc.), o que apagava blocos
+  // inteiros de conteúdo em sites como a Britannica (qualquer div cujo
+  // nome de classe contivesse "top" ou "header" — muito comum em SPAs —
+  // era removida do DOM). Isso é o que causava a tela em branco.
+  bool _isSearxHost(String url) {
+    final host = Uri.tryParse(url)?.host ?? '';
+    final searxHost = Uri.parse(SearxNGConfig.baseUrl).host;
+    return host == searxHost;
+  }
+
+  void _injectHideHeaderCss(InAppWebViewController controller, String url) {
+    if (!_isSearxHost(url)) return; // nunca mexe em sites de terceiros
+
     const script = """
       (function() {
         function removeHeaders() {
           const selectors = [
-            'header', '.header', '#header', 'nav', '.nav', '#nav',
-            '.navbar', '#navbar', '.top-bar', '#top-bar',
             '.searxng-header', '.header-container', '.header-wrapper',
-            '[role="banner"]', '[class*="header"]', '[id*="header"]',
-            '[class*="top"]', '[id*="top"]'
+            'header#header', '#header.header'
           ];
           selectors.forEach(sel => {
             document.querySelectorAll(sel).forEach(el => {
@@ -138,25 +158,14 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
               }
             });
           });
-          document.querySelectorAll('*').forEach(el => {
-            const text = el.textContent || '';
-            if ((text.includes('SearxNG') || text.includes('Pesquisar')) &&
-                el.getBoundingClientRect().top < 150) {
-              el.remove();
-            }
-          });
           document.documentElement.style.background = 'transparent !important';
           document.body.style.background = 'transparent !important';
           document.body.style.margin = '0';
           document.body.style.padding = '0';
         }
         removeHeaders();
-        const observer = new MutationObserver(() => { removeHeaders(); });
-        observer.observe(document.body, { childList: true, subtree: true });
         setTimeout(removeHeaders, 500);
         setTimeout(removeHeaders, 1000);
-        setTimeout(removeHeaders, 2000);
-        setTimeout(removeHeaders, 3000);
       })();
     """;
     controller.evaluateJavascript(source: script);
@@ -304,6 +313,18 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
     );
   }
 
+  // ── Recarrega a página automaticamente se ela falhar silenciosamente ──
+  // Limita a 1 tentativa automática por navegação para não entrar em loop
+  // caso o site esteja realmente fora do ar.
+  void _maybeAutoReload(InAppWebViewController controller, String url) {
+    if (_reloadAttempts >= 1) return;
+    _reloadAttempts++;
+    Timer(const Duration(milliseconds: 800), () {
+      if (!mounted) return;
+      controller.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+    });
+  }
+
   // ── Registra tracker bloqueado por domínio ───────────────────
   void _registerBlocked(String url) {
     final host = Uri.tryParse(url)?.host ?? url;
@@ -369,7 +390,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
               child: _Blob(size: 220, color: const Color(0xFF80DEEA))),
           Positioned(bottom: 200, left: -40,
               child: _Blob(size: 200, color: const Color(0xFFF48FB1))),
-          Positioned.fill(top: 0, child: _buildBody()),
+          Positioned.fill(top: 0, child: _buildBody(topPadding)),
           Positioned(
             top: topPadding + 8,
             left: 12,
@@ -398,66 +419,125 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(double topPadding) {
+    // Espaço reservado no topo para a WebView/lista de resultados nunca
+    // começar por baixo da pílula flutuante.
+    final double topInset = topPadding + _pillReservedHeight;
+
     return Stack(
       children: [
         Offstage(
           offstage: _screen != _Screen.webview,
-          child: InAppWebView(
-            initialUrlRequest: URLRequest(url: WebUri('about:blank')),
-            initialSettings: _webSettings,
-            onWebViewCreated: (c) => _webController = c,
-            onLoadStart: (c, url) =>
-                setState(() { _webLoading = true; _webProgress = 0; }),
-            onLoadStop: (c, url) {
-              final u = url?.toString() ?? '';
-              if (u.isNotEmpty && u != 'about:blank') {
-                _injectHideHeaderCss(c);
-                Timer(const Duration(milliseconds: 500),
-                    () => _injectHideHeaderCss(c));
-                Timer(const Duration(seconds: 1),
-                    () => _injectHideHeaderCss(c));
-                Timer(const Duration(seconds: 2),
-                    () => _injectHideHeaderCss(c));
+          child: Padding(
+            padding: EdgeInsets.only(top: topInset),
+            child: InAppWebView(
+              initialUrlRequest: URLRequest(url: WebUri('about:blank')),
+              initialSettings: _webSettings,
+              onWebViewCreated: (c) => _webController = c,
+              onLoadStart: (c, url) => setState(() {
+                _webLoading = true;
+                _webProgress = 0;
+                _hasLoadError = false;
+              }),
+              onLoadStop: (c, url) {
+                final u = url?.toString() ?? '';
+                if (u.isNotEmpty && u != 'about:blank') {
+                  _injectHideHeaderCss(c, u);
+                  Timer(const Duration(milliseconds: 500),
+                      () => _injectHideHeaderCss(c, u));
+                  Timer(const Duration(seconds: 1),
+                      () => _injectHideHeaderCss(c, u));
+                  _reloadAttempts = 0; // carregou com sucesso, zera contador
+                  setState(() {
+                    _webLoading = false;
+                    _webProgress = 1;
+                    _currentIsHttps = u.startsWith('https://');
+                    _currentUrl = u;
+                    if (!_searchFocus.hasFocus) {
+                      _searchController.text = _domainOnly(u);
+                    }
+                  });
+                }
+              },
+              onProgressChanged: (c, p) {
+                setState(() => _webProgress = p / 100.0);
+                if (p >= 70) _injectHideHeaderCss(c, _currentUrl);
+              },
+              // ── Erros de carregamento (página falhou silenciosamente) ──
+              onReceivedError: (c, request, error) {
+                if (!request.isForMainFrame) return;
                 setState(() {
                   _webLoading = false;
-                  _webProgress = 1;
-                  _currentIsHttps = u.startsWith('https://');
-                  _currentUrl = u;
-                  if (!_searchFocus.hasFocus) {
-                    _searchController.text = _domainOnly(u);
-                  }
+                  _hasLoadError = true;
                 });
-              }
-            },
-            onProgressChanged: (c, p) {
-              setState(() => _webProgress = p / 100.0);
-              if (p >= 70) _injectHideHeaderCss(c);
-            },
-            // ── Bloqueio de navegação ────────────────────────
-            shouldOverrideUrlLoading: (c, action) async {
-              final url = action.request.url?.toString() ?? '';
-              if (SearxNGConfig.isTracker(url)) {
-                _registerBlocked(url); // ← usa método centralizado
-                return NavigationActionPolicy.CANCEL;
-              }
-              return NavigationActionPolicy.ALLOW;
-            },
-            // ── Bloqueio de sub-recursos (scripts, XHR, etc) ─
-            shouldInterceptRequest: (c, request) async {
-              final url = request.url.toString();
-              if (SearxNGConfig.isTracker(url)) {
-                _registerBlocked(url); // ← usa método centralizado
-                return WebResourceResponse(
-                  contentType: 'text/plain',
-                  statusCode: 200,
-                  data: Uint8List(0),
-                );
-              }
-              return null;
-            },
+                _maybeAutoReload(c, request.url.toString());
+              },
+              onReceivedHttpError: (c, request, response) {
+                if (!request.isForMainFrame) return;
+                final status = response.statusCode ?? 0;
+                // Erros de servidor (5xx) costumam ser transitórios;
+                // vale a pena tentar recarregar uma vez.
+                if (status >= 500) {
+                  _maybeAutoReload(c, request.url.toString());
+                }
+              },
+              // ── Bloqueio de navegação ────────────────────────
+              shouldOverrideUrlLoading: (c, action) async {
+                final url = action.request.url?.toString() ?? '';
+                if (SearxNGConfig.isTracker(url)) {
+                  _registerBlocked(url); // ← usa método centralizado
+                  return NavigationActionPolicy.CANCEL;
+                }
+                return NavigationActionPolicy.ALLOW;
+              },
+              // ── Bloqueio de sub-recursos (scripts, XHR, etc) ─
+              // OBS: shouldInterceptRequest só funciona no Android; no iOS
+              // o WKWebView não expõe esse hook (limitação da própria
+              // Apple/flutter_inappwebview), então este bloqueio de
+              // trackers via sub-recurso é best-effort e não quebra nada
+              // no iOS caso não seja chamado.
+              shouldInterceptRequest: (c, request) async {
+                final url = request.url.toString();
+                if (SearxNGConfig.isTracker(url)) {
+                  _registerBlocked(url); // ← usa método centralizado
+                  return WebResourceResponse(
+                    contentType: 'text/plain',
+                    statusCode: 200,
+                    data: Uint8List(0),
+                  );
+                }
+                return null;
+              },
+            ),
           ),
         ),
+        if (_hasLoadError && _screen == _Screen.webview)
+          Positioned(
+            top: topInset,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              color: Colors.black.withOpacity(0.06),
+              child: Row(
+                children: [
+                  const Icon(Icons.wifi_off, size: 16, color: Colors.black54),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text('Não foi possível carregar a página',
+                        style: TextStyle(fontSize: 13, color: Colors.black54)),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      setState(() => _hasLoadError = false);
+                      _webController?.reload();
+                    },
+                    child: const Text('Tentar de novo'),
+                  ),
+                ],
+              ),
+            ),
+          ),
         if (_screen == _Screen.home)
           Center(
             child: Column(
@@ -499,26 +579,29 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
             ),
           ),
         if (_screen == _Screen.results)
-          _isSearching
-              ? const Center(
-                  child: CircularProgressIndicator(color: Color(0xFF1A1A2E)))
-              : _errorMsg != null
-                  ? Center(
-                      child: Text(_errorMsg!,
-                          style: const TextStyle(color: Colors.redAccent)))
-                  : _searchResponse != null
-                      ? _ResultsScreen(
-                          response: _searchResponse!,
-                          accent: _accent,
-                          pageBg: Colors.transparent,
-                          cardBg: _cardBg,
-                          cardBorder: _cardBorder,
-                          textMain: _textMain,
-                          textSub: _textSub,
-                          onResultTap: _loadInWebView,
-                          onSuggestionTap: _doSearch,
-                        )
-                      : const SizedBox.shrink(),
+          Positioned.fill(
+            top: topInset,
+            child: _isSearching
+                ? const Center(
+                    child: CircularProgressIndicator(color: Color(0xFF1A1A2E)))
+                : _errorMsg != null
+                    ? Center(
+                        child: Text(_errorMsg!,
+                            style: const TextStyle(color: Colors.redAccent)))
+                    : _searchResponse != null
+                        ? _ResultsScreen(
+                            response: _searchResponse!,
+                            accent: _accent,
+                            pageBg: Colors.transparent,
+                            cardBg: _cardBg,
+                            cardBorder: _cardBorder,
+                            textMain: _textMain,
+                            textSub: _textSub,
+                            onResultTap: _loadInWebView,
+                            onSuggestionTap: _doSearch,
+                          )
+                        : const SizedBox.shrink(),
+          ),
       ],
     );
   }
