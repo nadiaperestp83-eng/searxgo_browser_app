@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import 'searxng_config.dart';
 import 'searxgo_browser.dart';
 import 'vpn_service.dart';
+import 'services/tab_manager.dart';
+import 'services/search_engine_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,9 +25,19 @@ Future<void> main() async {
     await InAppWebViewController.setWebContentsDebuggingEnabled(true);
   }
 
+  final tabManager = TabManager();
+  final searchEngineProvider = SearchEngineProvider();
+  // Restaura abas e buscador salvos antes de desenhar a tela, para não
+  // "piscar" o estado default e depois trocar para o restaurado.
+  await Future.wait([tabManager.restore(), searchEngineProvider.restore()]);
+
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => VpnService(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => VpnService()),
+        ChangeNotifierProvider.value(value: tabManager),
+        ChangeNotifierProvider.value(value: searchEngineProvider),
+      ],
       child: const SearxGoApp(),
     ),
   );
