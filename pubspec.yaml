@@ -19,6 +19,7 @@ dependencies:
   path_provider: ^2.1.4
   permission_handler: ^11.3.1
   provider: ^6.1.2
+  shared_preferences: ^2.3.2
   share_plus: ^10.0.2
   crypto: ^3.0.5
   package_info_plus: ^8.0.2
@@ -40,8 +41,6 @@ dependencies:
   path: any
   http: ^1.2.1
   flutter_v2ray: ^1.0.10
-  provider: ^6.1.2
-    shared_preferences: ^2.3.2
 
 dev_dependencies:
   flutter_test:
