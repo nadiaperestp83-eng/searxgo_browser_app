@@ -8,10 +8,11 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'searxng_config.dart';
 import 'models/search_result.dart';
+import 'models/browser_tab.dart';
+import 'services/tab_manager.dart';
+import 'services/search_engine_provider.dart';
 import 'vpn_service.dart';
 import 'privacy_screen.dart';
-
-enum _Screen { home, results, webview }
 
 class SearxGoBrowser extends StatefulWidget {
   const SearxGoBrowser({Key? key}) : super(key: key);
@@ -27,7 +28,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
 
   InAppWebViewController? _webController;
 
-  _Screen _screen = _Screen.home;
+  TabScreen _screen = TabScreen.home;
   bool _isSearching = false;
   bool _isEditing = false;
   double _webProgress = 0;
@@ -37,6 +38,13 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   int _blockedCount = 0;
   bool _currentIsHttps = false;
   String _currentUrl = '';
+
+  // ── Pílula some ao rolar para baixo, reaparece ao rolar para cima ──
+  bool _pillVisible = true;
+  double _lastScrollY = 0;
+
+  // ── Sincronização com o TabManager (abas) ────────────────────
+  bool _tabStateLoaded = false;
 
   // ── Mapa de trackers bloqueados por domínio ──────────────────
   Map<String, int> _blockedByDomain = {};
@@ -95,7 +103,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
     _searchFocus.addListener(() {
       final hasFocus = _searchFocus.hasFocus;
       setState(() => _isEditing = hasFocus);
-      if (_screen == _Screen.webview) {
+      if (_screen == TabScreen.webview) {
         if (hasFocus) {
           _searchController.text = _currentUrl;
           _searchController.selection = TextSelection(
@@ -114,6 +122,18 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
     _searchController.dispose();
     _searchFocus.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_tabStateLoaded) {
+      _tabStateLoaded = true;
+      // Espera o próximo frame: o TabManager já foi restaurado em main()
+      // antes do runApp, então isso só popula os campos locais a partir
+      // da aba ativa (sem precisar de setState síncrono durante build).
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadActiveTabState());
+    }
   }
 
   String _domainOnly(String url) {
@@ -178,7 +198,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
         .toString();
 
     setState(() {
-      _screen = _Screen.webview;
+      _screen = TabScreen.webview;
       _webProgress = 0;
       _webLoading = true;
       _currentIsHttps = cleanUrl.startsWith('https://');
@@ -200,16 +220,26 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   }
 
   Future<void> _doSearch(String query) async {
+    final engine = context.read<SearchEngineProvider>().engine;
+
+    // DuckDuckGo, Brave Search, Startpage e Mojeek não têm API JSON
+    // pública — carregamos a página de resultados normal deles direto
+    // na WebView, como um navegador comum.
+    if (!engine.isJsonCapable) {
+      _loadInWebView(engine.searchUrl(query, searxBaseUrl: SearxNGConfig.baseUrl));
+      return;
+    }
+
     setState(() {
       _isSearching = true;
-      _screen = _Screen.results;
+      _screen = TabScreen.results;
       _errorMsg = null;
       _searchResponse = null;
       _searchController.text = query;
     });
 
     try {
-      final uri = Uri.parse(SearxNGConfig.searchUrl(query));
+      final uri = Uri.parse(engine.searchUrl(query, searxBaseUrl: SearxNGConfig.baseUrl));
       final res = await http.get(uri, headers: {
         'Accept': 'application/json',
         'User-Agent': 'SearxGo/1.0',
@@ -236,25 +266,25 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   }
 
   void _goBack() {
-    if (_screen == _Screen.webview) {
+    if (_screen == TabScreen.webview) {
       if (_searchResponse != null) {
         setState(() {
-          _screen = _Screen.results;
+          _screen = TabScreen.results;
           _searchController.text = _searchResponse!.query;
           _currentIsHttps = false;
           _currentUrl = '';
         });
       } else {
         setState(() {
-          _screen = _Screen.home;
+          _screen = TabScreen.home;
           _searchController.clear();
           _currentIsHttps = false;
           _currentUrl = '';
         });
       }
-    } else if (_screen == _Screen.results) {
+    } else if (_screen == TabScreen.results) {
       setState(() {
-        _screen = _Screen.home;
+        _screen = TabScreen.home;
         _searchController.clear();
       });
     }
@@ -278,7 +308,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
     );
     if (mounted) {
       setState(() {
-        _screen = _Screen.home;
+        _screen = TabScreen.home;
         _searchController.clear();
         _searchResponse = null;
         _errorMsg = null;
@@ -304,14 +334,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
     }
   }
 
-  void _onTabsTap() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Gerenciador de abas em breve'),
-        duration: Duration(seconds: 1),
-      ),
-    );
-  }
+  void _onTabsTap() => _cycleTab();
 
   // ── Recarrega a página automaticamente se ela falhar silenciosamente ──
   // Limita a 1 tentativa automática por navegação para não entrar em loop
@@ -323,6 +346,74 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
       if (!mounted) return;
       controller.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
     });
+  }
+
+  // ── Salva o estado "leve" (url/título/modo) da aba ativa ─────
+  // Não salva progresso/resultados/erros: isso é descartável e é
+  // recriado ao recarregar a aba.
+  void _saveActiveTabState() {
+    final tm = context.read<TabManager>();
+    final tab = tm.active;
+    // OBS: não guardamos o SearchResponse por aba (ainda) — então uma
+    // aba parada na tela de resultados sempre volta pra home ao trocar
+    // de aba ou reabrir o app, em vez de mostrar uma tela de resultados
+    // vazia. Buscar de novo é 1 toque; é um limite consciente do MVP.
+    if (_screen == TabScreen.results) {
+      tab.screen = TabScreen.home;
+      tab.url = '';
+      tab.title = 'Nova aba';
+      tm.persist();
+      return;
+    }
+    tab.screen = _screen;
+    tab.url = _screen == TabScreen.webview ? _currentUrl : '';
+    tab.title = tab.url.isNotEmpty ? _domainOnly(tab.url) : 'Nova aba';
+    tm.persist();
+  }
+
+  // ── Carrega o estado da aba que acabou de virar ativa ────────
+  void _loadActiveTabState() {
+    if (!mounted) return;
+    final tm = context.read<TabManager>();
+    final tab = tm.active;
+    setState(() {
+      _screen = tab.screen;
+      _currentUrl = tab.url;
+      _currentIsHttps = tab.url.startsWith('https://');
+      _searchResponse = null;
+      _errorMsg = null;
+      _webProgress = 0;
+      _webLoading = tab.screen == TabScreen.webview && tab.url.isNotEmpty;
+      _hasLoadError = false;
+      _reloadAttempts = 0;
+      _pillVisible = true;
+      _searchController.text =
+          tab.url.isNotEmpty ? _domainOnly(tab.url) : '';
+    });
+    if (tab.screen == TabScreen.webview && tab.url.isNotEmpty) {
+      _webController?.loadUrl(urlRequest: URLRequest(url: WebUri(tab.url)));
+    } else {
+      _webController?.loadUrl(
+          urlRequest: URLRequest(url: WebUri('about:blank')));
+    }
+  }
+
+  // ── Botão "+": cria uma aba nova em branco e troca pra ela ───
+  void _createNewTab() {
+    _saveActiveTabState();
+    context.read<TabManager>().newTab();
+    _loadActiveTabState();
+  }
+
+  // ── Botão do contador de abas: por ora, alterna ciclicamente ──
+  // (estrutura pronta para, no futuro, abrir uma grade/lista de abas
+  // em vez de só ciclar).
+  void _cycleTab() {
+    final tm = context.read<TabManager>();
+    if (tm.tabs.length < 2) return;
+    _saveActiveTabState();
+    tm.cycleNext();
+    _loadActiveTabState();
   }
 
   // ── Registra tracker bloqueado por domínio ───────────────────
@@ -341,7 +432,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
 
     IconData leadingIcon;
     Color leadingIconColor;
-    if (_isEditing || _screen != _Screen.webview) {
+    if (_isEditing || _screen != TabScreen.webview) {
       leadingIcon = Icons.search;
       leadingIconColor = _iconGray;
     } else if (_currentIsHttps) {
@@ -351,6 +442,8 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
       leadingIcon = Icons.public;
       leadingIconColor = _iconGray;
     }
+
+    final bool showPill = _pillVisible || _screen != TabScreen.webview;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -391,27 +484,38 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
           Positioned(bottom: 200, left: -40,
               child: _Blob(size: 200, color: const Color(0xFFF48FB1))),
           Positioned.fill(top: 0, child: _buildBody(topPadding)),
-          Positioned(
-            top: topPadding + 8,
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            top: showPill ? topPadding + 8 : -(_pillReservedHeight + 20),
             left: 12,
             right: 12,
-            child: _FloatingPill(
-              controller: _searchController,
-              focusNode: _searchFocus,
-              accent: _accent,
-              isEditing: _isEditing,
-              isWebLoading: _webLoading,
-              webProgress: _webProgress,
-              blockedCount: _blockedCount,
-              showBack: _screen != _Screen.home,
-              leadingIcon: leadingIcon,
-              leadingIconColor: leadingIconColor,
-              vpnActive: vpn.isActive,
-              onSubmit: _onSubmit,
-              onBack: _goBack,
-              onMenuTap: () => _scaffoldKey.currentState?.openEndDrawer(),
-              onFireTap: _burnAll,
-              onTabsTap: _onTabsTap,
+            child: IgnorePointer(
+              ignoring: !showPill,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 180),
+                opacity: showPill ? 1 : 0,
+                child: _FloatingPill(
+                  controller: _searchController,
+                  focusNode: _searchFocus,
+                  accent: _accent,
+                  isEditing: _isEditing,
+                  isWebLoading: _webLoading,
+                  webProgress: _webProgress,
+                  blockedCount: _blockedCount,
+                  tabCount: context.watch<TabManager>().tabs.length,
+                  showBack: _screen != TabScreen.home,
+                  leadingIcon: leadingIcon,
+                  leadingIconColor: leadingIconColor,
+                  vpnActive: vpn.isActive,
+                  onSubmit: _onSubmit,
+                  onBack: _goBack,
+                  onMenuTap: () => _scaffoldKey.currentState?.openEndDrawer(),
+                  onFireTap: _burnAll,
+                  onTabsTap: _onTabsTap,
+                  onNewTab: _createNewTab,
+                ),
+              ),
             ),
           ),
         ],
@@ -427,7 +531,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
     return Stack(
       children: [
         Offstage(
-          offstage: _screen != _Screen.webview,
+          offstage: _screen != TabScreen.webview,
           child: Padding(
             padding: EdgeInsets.only(top: topInset),
             child: InAppWebView(
@@ -438,6 +542,8 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
                 _webLoading = true;
                 _webProgress = 0;
                 _hasLoadError = false;
+                _pillVisible = true;
+                _lastScrollY = 0;
               }),
               onLoadStop: (c, url) {
                 final u = url?.toString() ?? '';
@@ -462,6 +568,20 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
               onProgressChanged: (c, p) {
                 setState(() => _webProgress = p / 100.0);
                 if (p >= 70) _injectHideHeaderCss(c, _currentUrl);
+              },
+              // ── Esconde/mostra a pílula conforme a direção do scroll ──
+              // Rolou pra baixo: some (animado). Rolou pra cima ou chegou
+              // no topo (y<=4): reaparece imediatamente.
+              onScrollChanged: (c, x, y) {
+                final dy = y - _lastScrollY;
+                if (y <= 4) {
+                  if (!_pillVisible) setState(() => _pillVisible = true);
+                } else if (dy > 6 && _pillVisible) {
+                  setState(() => _pillVisible = false);
+                } else if (dy < -6 && !_pillVisible) {
+                  setState(() => _pillVisible = true);
+                }
+                _lastScrollY = y.toDouble();
               },
               // ── Erros de carregamento (página falhou silenciosamente) ──
               onReceivedError: (c, request, error) {
@@ -511,7 +631,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
             ),
           ),
         ),
-        if (_hasLoadError && _screen == _Screen.webview)
+        if (_hasLoadError && _screen == TabScreen.webview)
           Positioned(
             top: topInset,
             left: 0,
@@ -538,7 +658,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
               ),
             ),
           ),
-        if (_screen == _Screen.home)
+        if (_screen == TabScreen.home)
           Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -578,7 +698,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
               ],
             ),
           ),
-        if (_screen == _Screen.results)
+        if (_screen == TabScreen.results)
           Positioned.fill(
             top: topInset,
             child: _isSearching
@@ -641,10 +761,11 @@ class _FloatingPill extends StatelessWidget {
   final bool isEditing, isWebLoading, showBack, vpnActive;
   final double webProgress;
   final int blockedCount;
+  final int tabCount;
   final IconData leadingIcon;
   final Color leadingIconColor;
   final ValueChanged<String> onSubmit;
-  final VoidCallback onBack, onMenuTap, onFireTap, onTabsTap;
+  final VoidCallback onBack, onMenuTap, onFireTap, onTabsTap, onNewTab;
 
   const _FloatingPill({
     required this.controller,
@@ -654,6 +775,7 @@ class _FloatingPill extends StatelessWidget {
     required this.isWebLoading,
     required this.webProgress,
     required this.blockedCount,
+    required this.tabCount,
     required this.showBack,
     required this.leadingIcon,
     required this.leadingIconColor,
@@ -663,6 +785,7 @@ class _FloatingPill extends StatelessWidget {
     required this.onMenuTap,
     required this.onFireTap,
     required this.onTabsTap,
+    required this.onNewTab,
   });
 
   @override
@@ -672,12 +795,16 @@ class _FloatingPill extends StatelessWidget {
       children: [
         Row(
           children: [
-            if (showBack)
+            if (showBack) ...[
               _PillBtn(
                 onTap: onBack,
                 child: const Icon(Icons.arrow_back,
                     color: Color(0xFF5F5F5F), size: 20),
               ),
+              // Espaçamento elegante entre o botão de voltar e a pílula
+              // de URL — antes eles ficavam colados.
+              const SizedBox(width: 10),
+            ],
             Expanded(
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(24),
@@ -789,6 +916,13 @@ class _FloatingPill extends StatelessWidget {
                   color: Color(0xFFE07A2A), size: 22),
             ),
             const SizedBox(width: 4),
+            // ── Botão "+": nova aba ───────────────────────────
+            _PillBtn(
+              onTap: onNewTab,
+              child: const Icon(Icons.add,
+                  color: Color(0xFF5F5F5F), size: 22),
+            ),
+            const SizedBox(width: 4),
             GestureDetector(
               onTap: onTabsTap,
               child: Container(
@@ -807,8 +941,8 @@ class _FloatingPill extends StatelessWidget {
                   ],
                 ),
                 alignment: Alignment.center,
-                child: const Text('1',
-                    style: TextStyle(
+                child: Text('$tabCount',
+                    style: const TextStyle(
                         color: Color(0xFF5F5F5F),
                         fontSize: 13,
                         fontWeight: FontWeight.w700)),
@@ -1114,6 +1248,11 @@ class _SettingsDrawer extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
             Container(
               margin: const EdgeInsets.symmetric(
                   horizontal: 12, vertical: 4),
@@ -1155,6 +1294,37 @@ class _SettingsDrawer extends StatelessWidget {
                       ),
               ),
             ),
+            const Divider(color: Color(0xFFE0E0E0), height: 16),
+            // ── Seletor de buscador padrão ────────────────────
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Text('Buscador padrão',
+                  style: TextStyle(
+                      color: Color(0xFF8A8A8A),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600)),
+            ),
+            Builder(builder: (context) {
+              final engineProvider = context.watch<SearchEngineProvider>();
+              return Column(
+                children: SearchEngine.values.map((e) {
+                  return RadioListTile<SearchEngine>(
+                    value: e,
+                    groupValue: engineProvider.engine,
+                    dense: true,
+                    activeColor: accent,
+                    title: Text(e.label,
+                        style: const TextStyle(
+                            color: _iconGray, fontSize: 14)),
+                    onChanged: (value) {
+                      if (value != null) {
+                        context.read<SearchEngineProvider>().setEngine(value);
+                      }
+                    },
+                  );
+                }).toList(),
+              );
+            }),
             const Divider(color: Color(0xFFE0E0E0), height: 16),
             ListTile(
               leading: const Icon(Icons.local_fire_department,
@@ -1224,7 +1394,10 @@ class _SettingsDrawer extends StatelessWidget {
 
             _item(Icons.info_outline, 'Sobre', _iconGray,
                 () => Navigator.pop(context)),
-            const Spacer(),
+                  ],
+                ),
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.all(16),
               child: Text(SearxNGConfig.baseUrl,
