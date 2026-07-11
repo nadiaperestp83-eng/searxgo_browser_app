@@ -40,10 +40,6 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   bool _currentIsHttps = false;
   String _currentUrl = '';
 
-  // ── Pílula some ao rolar para baixo, reaparece ao rolar para cima ──
-  bool _pillVisible = true;
-  double _lastScrollY = 0;
-
   // ── Sincronização com o TabManager (abas) ────────────────────
   bool _tabStateLoaded = false;
 
@@ -398,7 +394,6 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
       _webLoading = tab.screen == TabScreen.webview && tab.url.isNotEmpty;
       _hasLoadError = false;
       _reloadAttempts = 0;
-      _pillVisible = true;
       _searchController.text =
           tab.url.isNotEmpty ? _domainOnly(tab.url) : '';
     });
@@ -455,8 +450,6 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
       leadingIconColor = _iconGray;
     }
 
-    final bool showPill = _pillVisible || _screen != TabScreen.webview;
-
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: const Color(0xFFDFE9FF),
@@ -495,39 +488,35 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
               child: _Blob(size: 220, color: const Color(0xFF80DEEA))),
           Positioned(bottom: 200, left: -40,
               child: _Blob(size: 200, color: const Color(0xFFF48FB1))),
+          // WebView / home / resultados ocupam todo o Stack. A pílula é
+          // apenas desenhada por cima (Positioned fixo, sem animação e
+          // sem listener de scroll) — nada aqui reage ao scroll da
+          // WebView, então não há mais risco de travar o renderizador
+          // (ANR) nem de "quebrar" visualmente a barra durante a rolagem.
           Positioned.fill(top: 0, child: _buildBody(topPadding)),
-          AnimatedPositioned(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
-            top: showPill ? topPadding + 8 : -(_pillReservedHeight + 20),
+          Positioned(
+            top: topPadding + 8,
             left: 16,
             right: 16,
-            child: IgnorePointer(
-              ignoring: !showPill,
-              child: AnimatedOpacity(
-                duration: const Duration(milliseconds: 180),
-                opacity: showPill ? 1 : 0,
-                child: _FloatingPill(
-                  controller: _searchController,
-                  focusNode: _searchFocus,
-                  accent: _accent,
-                  isEditing: _isEditing,
-                  isWebLoading: _webLoading,
-                  webProgress: _webProgress,
-                  blockedCount: _blockedCount,
-                  tabCount: context.watch<TabManager>().tabs.length,
-                  showBack: _screen != TabScreen.home,
-                  leadingIcon: leadingIcon,
-                  leadingIconColor: leadingIconColor,
-                  vpnActive: vpn.isActive,
-                  onSubmit: _onSubmit,
-                  onBack: _goBack,
-                  onMenuTap: () => _scaffoldKey.currentState?.openEndDrawer(),
-                  onFireTap: _burnAll,
-                  onTabsTap: _onTabsTap,
-                  onNewTab: _createNewTab,
-                ),
-              ),
+            child: _FloatingPill(
+              controller: _searchController,
+              focusNode: _searchFocus,
+              accent: _accent,
+              isEditing: _isEditing,
+              isWebLoading: _webLoading,
+              webProgress: _webProgress,
+              blockedCount: _blockedCount,
+              tabCount: context.watch<TabManager>().tabs.length,
+              showBack: _screen != TabScreen.home,
+              leadingIcon: leadingIcon,
+              leadingIconColor: leadingIconColor,
+              vpnActive: vpn.isActive,
+              onSubmit: _onSubmit,
+              onBack: _goBack,
+              onMenuTap: () => _scaffoldKey.currentState?.openEndDrawer(),
+              onFireTap: _burnAll,
+              onTabsTap: _onTabsTap,
+              onNewTab: _createNewTab,
             ),
           ),
         ],
@@ -554,8 +543,6 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
                 _webLoading = true;
                 _webProgress = 0;
                 _hasLoadError = false;
-                _pillVisible = true;
-                _lastScrollY = 0;
               }),
               onLoadStop: (c, url) {
                 final u = url?.toString() ?? '';
@@ -588,20 +575,6 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
                   _injectHideHeaderCss(c, _currentUrl);
                   _injectSiteCleanup(c, _currentUrl);
                 }
-              },
-              // ── Esconde/mostra a pílula conforme a direção do scroll ──
-              // Rolou pra baixo: some (animado). Rolou pra cima ou chegou
-              // no topo (y<=4): reaparece imediatamente.
-              onScrollChanged: (c, x, y) {
-                final dy = y - _lastScrollY;
-                if (y <= 4) {
-                  if (!_pillVisible) setState(() => _pillVisible = true);
-                } else if (dy > 6 && _pillVisible) {
-                  setState(() => _pillVisible = false);
-                } else if (dy < -6 && !_pillVisible) {
-                  setState(() => _pillVisible = true);
-                }
-                _lastScrollY = y.toDouble();
               },
               // ── Erros de carregamento (página falhou silenciosamente) ──
               onReceivedError: (c, request, error) {
