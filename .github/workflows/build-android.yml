@@ -28,6 +28,9 @@ jobs:
       - name: flutter pub get
         run: flutter pub get
 
+      - name: Generate launcher icons
+        run: flutter pub run flutter_launcher_icons
+
       - name: Verify dependencies
         run: flutter pub deps
 
