@@ -56,11 +56,13 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   static const Color _iconGray   = Color(0xFF5F5F5F);
   static const Color _accent     = Color(0xFF00D4FF);
 
-  // Altura reservada para a pílula flutuante (barra + gap + barra de
-  // progresso), usada para empurrar o conteúdo (WebView/lista de
-  // resultados) para baixo dela, evitando que o topo da página fique
-  // escondido atrás da navbar flutuante.
-  static const double _pillReservedHeight = 92.0;
+  // Altura reservada para a pílula flutuante, usada para empurrar o
+  // conteúdo (WebView/lista de resultados) para baixo dela, evitando que
+  // o topo da página fique escondido atrás da navbar flutuante.
+  // A pílula agora usa margin/height FIXOS (top:45 + height:56), então
+  // este valor também é fixo (não soma mais o topPadding do dispositivo):
+  // 45 (margin) + 56 (altura) + 12 (respiro/barra de progresso).
+  static const double _pillReservedHeight = 45.0 + 56.0 + 12.0;
 
   final InAppWebViewSettings _webSettings = InAppWebViewSettings(
     useShouldOverrideUrlLoading: true,
@@ -435,7 +437,6 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
   @override
   Widget build(BuildContext context) {
     final vpn = context.watch<VpnService>();
-    final topPadding = MediaQuery.of(context).viewPadding.top;
 
     IconData leadingIcon;
     Color leadingIconColor;
@@ -493,11 +494,11 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
           // sem listener de scroll) — nada aqui reage ao scroll da
           // WebView, então não há mais risco de travar o renderizador
           // (ANR) nem de "quebrar" visualmente a barra durante a rolagem.
-          Positioned.fill(top: 0, child: _buildBody(topPadding)),
+          Positioned.fill(top: 0, child: _buildBody()),
           Positioned(
-            top: topPadding + 8,
-            left: 16,
-            right: 16,
+            top: 0,
+            left: 0,
+            right: 0,
             child: _FloatingPill(
               controller: _searchController,
               focusNode: _searchFocus,
@@ -524,10 +525,10 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
     );
   }
 
-  Widget _buildBody(double topPadding) {
+  Widget _buildBody() {
     // Espaço reservado no topo para a WebView/lista de resultados nunca
     // começar por baixo da pílula flutuante.
-    final double topInset = topPadding + _pillReservedHeight;
+    final double topInset = _pillReservedHeight;
 
     return Stack(
       children: [
@@ -783,176 +784,105 @@ class _FloatingPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ── Pílula: valores FIXOS conforme especificação exata ──────
+    // margin, height, padding e decoration não devem ser alterados.
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          children: [
-            if (showBack) ...[
-              _PillBtn(
-                onTap: onBack,
-                child: const Icon(Icons.arrow_back,
-                    color: Color(0xFF5F5F5F), size: 20),
+        Container(
+          margin: const EdgeInsets.only(top: 45, left: 16, right: 16),
+          height: 56,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
               ),
-              // Espaçamento elegante entre o botão de voltar e a pílula
-              // de URL — antes eles ficavam colados.
-              const SizedBox(width: 10),
             ],
-            Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(28),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                  child: Container(
-                    height: 56,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.82),
-                      borderRadius: BorderRadius.circular(28),
-                      border: Border.all(
-                        color: isEditing
-                            ? accent
-                            : Colors.white.withOpacity(0.95),
-                        width: isEditing ? 1.5 : 1,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.12),
-                          blurRadius: 20,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        const SizedBox(width: 20),
-                        Icon(leadingIcon, size: 18, color: leadingIconColor),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                            controller: controller,
-                            focusNode: focusNode,
-                            onTap: () {
-                              controller.selection = TextSelection(
-                                baseOffset: 0,
-                                extentOffset: controller.text.length,
-                              );
-                            },
-                            onSubmitted: onSubmit,
-                            textInputAction: TextInputAction.go,
-                            keyboardType: TextInputType.url,
-                            autocorrect: false,
-                            style: const TextStyle(
-                                color: Colors.black87, fontSize: 17),
-                            decoration: const InputDecoration(
-                              hintText: 'Pesquisar',
-                              hintStyle: TextStyle(
-                                  color: Color(0xFF8A8A8A), fontSize: 17),
-                              border: InputBorder.none,
-                              isDense: true,
-                              contentPadding:
-                                  EdgeInsets.symmetric(vertical: 14),
-                            ),
-                          ),
-                        ),
-                        if (vpnActive && !isEditing)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 6),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.green.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.vpn_lock,
-                                      size: 12, color: Colors.green),
-                                  SizedBox(width: 3),
-                                  Text('VPN',
-                                      style: TextStyle(
-                                          color: Colors.green,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        if (blockedCount > 0 && !isEditing)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.shield, size: 12, color: accent),
-                                const SizedBox(width: 2),
-                                Text('$blockedCount',
-                                    style: TextStyle(
-                                        color: accent,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                          )
-                        else
-                          const SizedBox(width: 8),
-                      ],
-                    ),
+          ),
+          child: Row(
+            children: [
+              // ── Voltar (só aparece dentro da WebView/resultados) ──
+              if (showBack) ...[
+                GestureDetector(
+                  onTap: onBack,
+                  child: const Icon(Icons.arrow_back,
+                      color: Colors.grey, size: 22),
+                ),
+                const SizedBox(width: 10),
+              ] else ...[
+                Icon(leadingIcon, color: leadingIconColor, size: 22),
+                const SizedBox(width: 10),
+              ],
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  onTap: () {
+                    controller.selection = TextSelection(
+                      baseOffset: 0,
+                      extentOffset: controller.text.length,
+                    );
+                  },
+                  onSubmitted: onSubmit,
+                  textInputAction: TextInputAction.go,
+                  keyboardType: TextInputType.url,
+                  autocorrect: false,
+                  style: const TextStyle(color: Colors.black87, fontSize: 16),
+                  decoration: const InputDecoration(
+                    hintText: 'Pesquisar',
+                    hintStyle: TextStyle(color: Colors.grey, fontSize: 16),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 6),
-            _PillBtn(
-              onTap: onFireTap,
-              child: const Icon(Icons.local_fire_department,
-                  color: Color(0xFFE07A2A), size: 22),
-            ),
-            const SizedBox(width: 4),
-            // ── Botão "+": nova aba ───────────────────────────
-            _PillBtn(
-              onTap: onNewTab,
-              child: const Icon(Icons.add,
-                  color: Color(0xFF5F5F5F), size: 22),
-            ),
-            const SizedBox(width: 4),
-            GestureDetector(
-              onTap: onTabsTap,
-              child: Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.75),
-                  borderRadius: BorderRadius.circular(9),
-                  border: Border.all(
-                      color: const Color(0xFF5F5F5F).withOpacity(0.4),
-                      width: 1.5),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
-                      blurRadius: 8,
-                    ),
-                  ],
-                ),
-                alignment: Alignment.center,
-                child: Text('$tabCount',
-                    style: const TextStyle(
-                        color: Color(0xFF5F5F5F),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700)),
+              if (vpnActive && !isEditing) ...[
+                const Icon(Icons.vpn_lock, color: Colors.green, size: 18),
+                const SizedBox(width: 10),
+              ],
+              if (blockedCount > 0 && !isEditing) ...[
+                Text('$blockedCount',
+                    style: TextStyle(
+                        color: accent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold)),
+                const SizedBox(width: 10),
+              ],
+              GestureDetector(
+                onTap: onFireTap,
+                child: const Icon(Icons.whatshot,
+                    color: Colors.orange, size: 22),
               ),
-            ),
-            const SizedBox(width: 4),
-            _PillBtn(
-              onTap: onMenuTap,
-              child: const Icon(Icons.menu,
-                  color: Color(0xFF5F5F5F), size: 22),
-            ),
-          ],
+              const SizedBox(width: 15),
+              GestureDetector(
+                onTap: onNewTab,
+                child: const Icon(Icons.add, color: Colors.grey, size: 22),
+              ),
+              const SizedBox(width: 15),
+              GestureDetector(
+                onTap: onTabsTap,
+                child: Text('$tabCount',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(width: 15),
+              GestureDetector(
+                onTap: onMenuTap,
+                child: const Icon(Icons.menu, color: Colors.grey, size: 22),
+              ),
+            ],
+          ),
         ),
+        // Barra de progresso: elemento à parte, abaixo da pílula — não
+        // altera a altura/margin do Container fixo acima.
         if (isWebLoading && webProgress > 0 && webProgress < 1)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
+          Container(
+            margin: const EdgeInsets.only(left: 16, right: 16, top: 4),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(2),
               child: LinearProgressIndicator(
@@ -969,41 +899,7 @@ class _FloatingPill extends StatelessWidget {
   }
 }
 
-class _PillBtn extends StatelessWidget {
-  final VoidCallback onTap;
-  final Widget child;
-  const _PillBtn({required this.onTap, required this.child});
 
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(21),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-          child: Container(
-            width: 42, height: 42,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.75),
-              shape: BoxShape.circle,
-              border: Border.all(
-                  color: Colors.white.withOpacity(0.9), width: 1),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
-                  blurRadius: 16,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: child,
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 // ================================================================
 //  Resultados
