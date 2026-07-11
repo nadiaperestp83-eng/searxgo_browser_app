@@ -40,6 +40,8 @@ dependencies:
   path: any
   http: ^1.2.1
   flutter_v2ray: ^1.0.10
+  provider: ^6.1.2
+    shared_preferences: ^2.3.2
 
 dev_dependencies:
   flutter_test:
