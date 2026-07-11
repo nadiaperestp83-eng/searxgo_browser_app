@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import android.speech.RecognizerResultsIntent
+import androidx.core.splashscreen.SplashScreen
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -18,6 +19,11 @@ class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.pichillilorenzo.flutter_browser.intent_data"
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Precisa ser chamado ANTES de super.onCreate(): é isso que
+        // mantém a splash nativa (ícone + fundo definidos no XML) na
+        // tela até o Flutter desenhar o primeiro frame — sem nenhuma
+        // tela dedicada em Dart no meio do caminho.
+        SplashScreen.installSplashScreen(this)
         super.onCreate(savedInstanceState)
 
         var url: String? = null
