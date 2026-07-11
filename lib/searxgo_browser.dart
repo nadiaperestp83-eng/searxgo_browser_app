@@ -465,7 +465,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
               },
               // ── Erros de carregamento (página falhou silenciosamente) ──
               onReceivedError: (c, request, error) {
-                if (!request.isForMainFrame) return;
+                if (request.isForMainFrame != true) return;
                 setState(() {
                   _webLoading = false;
                   _hasLoadError = true;
@@ -473,7 +473,7 @@ class _SearxGoBrowserState extends State<SearxGoBrowser> {
                 _maybeAutoReload(c, request.url.toString());
               },
               onReceivedHttpError: (c, request, response) {
-                if (!request.isForMainFrame) return;
+                if (request.isForMainFrame != true) return;
                 final status = response.statusCode ?? 0;
                 // Erros de servidor (5xx) costumam ser transitórios;
                 // vale a pena tentar recarregar uma vez.
