@@ -10,11 +10,34 @@ SearxGo 🛡️
 ​📸 Capturas de Tela
 ​(Adicione aqui os links das imagens que você tirou, ou as coloque numa pasta /assets/images e referencie-as aqui)
 ​🚀 Como Compilar
-​Este projeto utiliza Flutter. Para rodar no seu dispositivo Android:
-​Pré-requisitos
-​Flutter SDK instalado.
-​Android Studio ou VS Code configurado.
-​Modo Desenvolvedor ativado no seu celular Android.
-​Passos
+​
 
-### Final Result
+### Este projeto utiliza Flutter. Para rodar no seu dispositivo Android:
+Pré-requisitos
+Flutter SDK instalado.
+Android Studio ou VS Code configurado.
+Modo Desenvolvedor ativado no seu celular Android.
+Passos
+Clone o repositório:
+
+git clone [URL_DO_SEU_REPOSITORIO]
+cd searxgo_browser_app
+
+Obtenha as dependências
+
+Conecte seu dispositivo e execute:
+flutter run
+
+
+🛠️ Tecnologias Utilizadas
+Flutter: Framework para UI nativa.
+[Kotlin/Android]: Configuração nativa para performance e integração com o sistema operacional.
+Searx: Motor de busca utilizado para garantir a privacidade.
+📝 Licença
+Este projeto é de código aberto sob a licença MIT. Sinta-se à vontade para contribuir!
+Dicas para personalizar:
+URL do Repositório: Onde está [URL_DO_SEU_REPOSITORIO], coloque o link real do seu GitHub.
+Imagens: Se você quiser que as fotos apareçam lindas no GitHub, suba as imagens que você tirou para uma pasta no seu repositório (ex: /screenshots) e use o caminho no README. No Markdown, a sintaxe é ![Nome da imagem](caminho/para/imagem.jpg).
+Sinta-se livre: Se quiser adicionar algo específico sobre a estrutura do projeto ou alguma limitação que você superou (como a parte da SplashScreen), adicione um tópico chamado "Notas de Desenvolvimento".
+
+
