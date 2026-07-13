@@ -7,8 +7,12 @@ SearxGo 🛡️
 ​Design Minimalista: Interface moderna com foco na facilidade de uso.
 ​Barra de Busca Integrada: Experiência otimizada com acesso rápido a recursos de pesquisa privada.
 ​Leve: Otimizado para não consumir recursos desnecessários do seu dispositivo.
+
 ​📸 Capturas de Tela
-​(Adicione aqui os links das imagens que você tirou, ou as coloque numa pasta /assets/images e referencie-as aqui)
+
+![Texto Alternativo](URL_da_Imagem)
+
+
 ​🚀 Como Compilar
 ​
 
