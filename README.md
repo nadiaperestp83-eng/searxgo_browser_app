@@ -10,8 +10,7 @@ SearxGo 🛡️
 
 ​📸 Capturas de Tela
 
-![Texto Alternativo](URL_da_Imagem)
-
+![Demo](demo/VID_20260713_122740.gif)
 
 ​🚀 Como Compilar
 ​
