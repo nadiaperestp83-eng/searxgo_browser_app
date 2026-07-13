@@ -75,30 +75,40 @@ class VpnService extends ChangeNotifier {
         return;
       }
 
-      // 2. Testa os primeiros 5 e pega o mais rápido
+      // 2. Testa os primeiros 5 EM PARALELO, cada um com timeout curto,
+      //    pra não travar o app inteiro esperando um servidor público
+      //    lento ou fora do ar.
       _status = 'Testando servidores...';
       notifyListeners();
 
+      const _pingTimeout = Duration(seconds: 3);
+      final candidates = configs.take(5).toList();
+
+      final results = await Future.wait(
+        candidates.map((link) async {
+          try {
+            final parsed = FlutterV2ray.parseFromURL(link);
+            final delay = await _v2ray
+                .getServerDelay(config: parsed.getFullConfiguration())
+                .timeout(_pingTimeout, onTimeout: () => -1);
+            return (parsed, delay);
+          } catch (_) {
+            return (null, -1);
+          }
+        }),
+      );
+
       V2RayURL? bestConfig;
       int bestDelay = 9999;
-
-      for (final link in configs.take(5)) {
-        try {
-          final parsed = FlutterV2ray.parseFromURL(link);
-          final delay = await _v2ray.getServerDelay(
-            config: parsed.getFullConfiguration(),
-          );
-          if (delay > 0 && delay < bestDelay) {
-            bestDelay = delay;
-            bestConfig = parsed;
-          }
-        } catch (_) {
-          continue;
+      for (final (parsed, delay) in results) {
+        if (parsed != null && delay > 0 && delay < bestDelay) {
+          bestDelay = delay;
+          bestConfig = parsed;
         }
       }
 
       if (bestConfig == null) {
-        // Se teste falhou, usa o primeiro da lista
+        // Nenhum respondeu a tempo — usa o primeiro da lista mesmo assim
         bestConfig = FlutterV2ray.parseFromURL(configs.first);
       }
 
