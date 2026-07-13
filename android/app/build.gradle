@@ -26,7 +26,7 @@ apply plugin: 'kotlin-android'
 apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
 
 android {
-    namespace 'com.pichillilorenzo.flutter_browser'
+    namespace 'com.searxgo.browser'
     compileSdkVersion 34
     ndkVersion flutter.ndkVersion
 
@@ -48,7 +48,7 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.pichillilorenzo.flutter_browser"
+        applicationId "com.searxgo.browser"
         minSdkVersion 23
         targetSdkVersion 34
         versionCode flutterVersionCode.toInteger()
@@ -89,5 +89,4 @@ flutter {
 
 dependencies {
     implementation 'androidx.multidex:multidex:2.0.1'
- 
 }
