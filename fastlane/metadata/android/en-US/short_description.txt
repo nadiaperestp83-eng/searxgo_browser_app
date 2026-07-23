@@ -1,0 +1,1 @@
+A privacy-focused mobile browser utilizing SearXNG.
