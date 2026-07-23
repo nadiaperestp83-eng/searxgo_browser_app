@@ -1,0 +1,1 @@
+SearXGo Browser is a lightweight, open-source application designed for private internet searches. It protects user privacy by preventing tracking and utilizing decentralized search capabilities.
