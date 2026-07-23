@@ -1,0 +1,1 @@
+SearXGo Browser é um aplicativo leve e de código aberto projetado para buscas privadas na internet. Ele protege a privacidade do usuário, evitando rastreamento e utilizando recursos de busca descentralizados.
